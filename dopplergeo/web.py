@@ -21,7 +21,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from .audio import media_start_time
 from .dem import load_dem
@@ -47,6 +48,22 @@ JOBS.mkdir(parents=True, exist_ok=True)
 LIVE.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Flyover Locator")
+
+
+@app.exception_handler(RequestValidationError)
+async def _bad_request(request: Request, exc: RequestValidationError):
+    fields = ", ".join(".".join(str(x) for x in e.get("loc", [])[1:]) + f" ({e.get('type')})" for e in exc.errors())
+    print(f"422 on {request.url.path}: {fields}", flush=True)
+    return JSONResponse({"detail": f"Requête refusée par le serveur : {fields}"}, status_code=422)
+
+
+def _num(v, default=None):
+    """Lenient form number: browsers send '', 'undefined', 'null' or '48,85'."""
+    try:
+        x = float(str(v).strip().replace(",", "."))
+        return x if math.isfinite(x) else default
+    except (TypeError, ValueError):
+        return default
 pool = ThreadPoolExecutor(max_workers=1)  # one heavy search at a time
 lock = threading.Lock()
 sessions: dict[str, LiveSession] = {}
@@ -239,11 +256,16 @@ def config():
 
 
 @app.post("/api/jobs")
-async def create_job(file: UploadFile = File(...), lat: float | None = Form(None), lon: float | None = Form(None),
-                     radius_km: float = Form(30.0), start: str = Form(""), start_tol_min: float = Form(30.0),
-                     use_metadata: bool = Form(True), region: str = Form("auto"), mode: str = Form("locate"),
+async def create_job(file: UploadFile | None = File(None), lat: str = Form(""), lon: str = Form(""),
+                     radius_km: str = Form("30"), start: str = Form(""), start_tol_min: str = Form("30"),
+                     use_metadata: str = Form("true"), region: str = Form("auto"), mode: str = Form("locate"),
                      day_from: str = Form(""), day_to: str = Form(""), x_password: str | None = Header(None)):
     _check(x_password)
+    if file is None or not hasattr(file, "read"):
+        raise HTTPException(400, "Le fichier n'est pas arrivé : réessaie (ou choisis-le depuis Fichiers plutôt que Photos).")
+    lat, lon = _num(lat), _num(lon)
+    radius_km, start_tol_min = _num(radius_km, 30.0), _num(start_tol_min, 30.0)
+    use_metadata = str(use_metadata).strip().lower() not in ("false", "0", "no", "off")
     zone = None
     if lat is not None and lon is not None:
         if not (-90 <= lat <= 90 and -180 <= lon <= 180):
@@ -275,7 +297,10 @@ async def create_job(file: UploadFile = File(...), lat: float | None = Form(None
             fh.write(chunk)
     start_unix = None
     if start:
-        t = dt.datetime.fromisoformat(start.replace("Z", "+00:00"))
+        try:
+            t = dt.datetime.fromisoformat(start.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(400, f"date/heure illisible : {start!r}")
         if t.tzinfo is None:
             t = t.replace(tzinfo=dt.timezone.utc)
         start_unix = t.timestamp()

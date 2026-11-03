@@ -1241,7 +1241,7 @@ async function submitJob(kind) {
     let body = {}; try { body = JSON.parse(xhr.responseText || '{}'); } catch {}
     if (xhr.status !== 200) {
       if (xhr.status === 401) badPassword();
-      const msg = xhr.status === 401 ? 'Mot de passe incorrect.' : xhr.status === 413 ? 'Fichier trop gros.' : (typeof body.detail === 'string' ? body.detail : `Erreur serveur (${xhr.status}).`);
+      const msg = xhr.status === 401 ? 'Mot de passe incorrect.' : xhr.status === 413 ? 'Fichier trop gros.' : (typeof body.detail === 'string' ? body.detail : Array.isArray(body.detail) ? 'Requête refusée : ' + body.detail.map(e => (e.loc || []).slice(1).join('.')).join(', ') : `Erreur serveur (${xhr.status}).`);
       return fileFail(msg, 'upload');
     }
     file.job = body.job;
