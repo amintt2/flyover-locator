@@ -3,144 +3,1005 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Flyover Locator</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css">
 <style>
-  :root {
-    --bg: #0e1116; --panel: #161b22; --line: #2a313c; --text: #e6edf3; --muted: #8b949e;
-    --accent: #ff7a45; --ok: #3fb950; --err: #f85149;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
-    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  #map { position: fixed; inset: 0; z-index: 0; }
-  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000; background: var(--panel);
-    border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; max-height: 72vh; overflow-y: auto;
-    padding: 10px 16px calc(16px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 30px rgba(0,0,0,.4); }
-  @media (min-width: 900px) {
-    .sheet { left: 16px; right: auto; top: 16px; bottom: 16px; width: 380px; max-height: none;
-      border-radius: 14px; border: 1px solid var(--line); }
-    .grip { display: none; }
-  }
-  .grip { width: 40px; height: 4px; border-radius: 2px; background: var(--line); margin: 0 auto 10px; }
-  h1 { font-size: 17px; margin: 0 0 4px; }
-  .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
-  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
-  input[type=datetime-local], input[type=number], input[type=password] {
-    width: 100%; padding: 11px 12px; background: var(--bg); color: var(--text);
-    border: 1px solid var(--line); border-radius: 10px; font-size: 16px; }
-  .row { display: flex; gap: 10px; }
-  .row > * { flex: 1; }
-  .drop { border: 2px dashed var(--line); border-radius: 12px; padding: 18px; text-align: center;
-    color: var(--muted); cursor: pointer; transition: border-color .15s; }
-  .drop.over, .drop.has { border-color: var(--accent); color: var(--text); }
-  input[type=range] { width: 100%; accent-color: var(--accent); }
-  button { width: 100%; margin-top: 16px; padding: 14px; border: 0; border-radius: 12px;
-    background: var(--accent); color: #111; font-weight: 650; font-size: 16px; cursor: pointer; }
-  button:disabled { opacity: .45; cursor: default; }
-  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
-  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
-  .check { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 14px; }
-  .log { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px;
-    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 34vh; overflow-y: auto;
-    white-space: pre-wrap; color: var(--muted); }
-  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin: 10px 0; }
-  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
-  .res { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-top: 10px; cursor: pointer; }
-  .res b { color: var(--accent); }
-  .res small { color: var(--muted); display: block; }
-  .imgs img { width: 100%; border-radius: 10px; margin-top: 10px; border: 1px solid var(--line); }
-  .err { color: var(--err); }
-  .ok { color: var(--ok); }
-  .hidden { display: none; }
+:root {
+  --bg: #0b0d12;
+  --surface: rgba(17, 20, 27, .94);
+  --card: #181c25;
+  --card-2: #1f2430;
+  --line: rgba(255, 255, 255, .08);
+  --line-2: rgba(255, 255, 255, .14);
+  --text: #eef1f6;
+  --muted: #8f97a8;
+  --faint: #5f6778;
+  --accent: #ff7a45;
+  --accent-soft: rgba(255, 122, 69, .14);
+  --ok: #3ecf8e;
+  --ok-soft: rgba(62, 207, 142, .13);
+  --warn: #f5b942;
+  --warn-soft: rgba(245, 185, 66, .13);
+  --err: #ff5d5d;
+  --err-soft: rgba(255, 93, 93, .13);
+  --rec: #ff3b30;
+  --r-lg: 22px;
+  --r-md: 16px;
+  --r-sm: 12px;
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sheet-h: 0px;
+  --panel-w: 410px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
+  font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%; }
+button, input, select { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
+a { color: var(--accent); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------- map */
+#map { position: fixed; inset: 0; z-index: 0; background: #0c0c0c; }
+.maplibregl-ctrl-top-right { top: calc(var(--sat) + 4px); right: var(--sar); }
+.maplibregl-ctrl-group { background: var(--surface) !important; border: 1px solid var(--line-2);
+  border-radius: 14px !important; box-shadow: 0 6px 20px rgba(0,0,0,.35) !important; overflow: hidden;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+.maplibregl-ctrl-group button { width: 40px; height: 40px; }
+.maplibregl-ctrl-group button + button { border-top: 1px solid var(--line) !important; }
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(1) brightness(.92); }
+.maplibregl-ctrl-group button.sat-btn { display: grid; place-items: center; color: var(--text); }
+.maplibregl-ctrl-group button.sat-btn.on { color: var(--accent); }
+.maplibregl-ctrl-attrib { background: rgba(11,13,18,.7) !important; color: var(--muted); font-size: 10px; }
+.maplibregl-ctrl-attrib a { color: var(--muted) !important; }
+.maplibregl-ctrl-attrib-button { filter: invert(1); }
+.maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right { bottom: var(--sheet-h); transition: bottom .32s cubic-bezier(.2,.8,.2,1); }
+.maplibregl-popup-content { background: var(--card-2); color: var(--text); border-radius: 14px; padding: 12px 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.5); border: 1px solid var(--line-2); font-size: 13px; min-width: 190px; }
+.maplibregl-popup-tip { border-top-color: var(--card-2) !important; border-bottom-color: var(--card-2) !important; }
+.maplibregl-popup-close-button { color: var(--muted); font-size: 18px; padding: 2px 8px; }
+.pop-title { font-weight: 650; margin-bottom: 4px; }
+.pop-sub { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.pop-links { display: flex; gap: 12px; font-weight: 600; }
+.pop-links a { text-decoration: none; }
+
+.brand-pill { position: fixed; z-index: 5; top: calc(var(--sat) + 10px); left: calc(var(--sal) + 10px);
+  display: flex; align-items: center; gap: 8px; padding: 7px 12px 7px 8px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--line-2); box-shadow: 0 6px 20px rgba(0,0,0,.35);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); font-weight: 650; font-size: 14px; letter-spacing: -.01em; }
+.map-hint { position: fixed; z-index: 4; left: 50%; transform: translateX(-50%) translateY(-6px);
+  top: calc(var(--sat) + 62px); padding: 8px 14px; border-radius: 999px; background: var(--surface);
+  border: 1px solid var(--line-2); font-size: 13px; color: var(--text); white-space: nowrap; pointer-events: none;
+  opacity: 0; transition: opacity .3s, transform .3s; box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+.map-hint.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.logo { width: 26px; height: 26px; border-radius: 8px; flex: none; display: grid; place-items: center;
+  background: linear-gradient(140deg, #ff9a5c, #ff5a3a); box-shadow: 0 2px 10px rgba(255,110,60,.35); }
+.logo svg { width: 16px; height: 16px; }
+
+/* ---------------------------------------------------------------- sheet / panel */
+.sheet { position: fixed; z-index: 10; left: 0; right: 0; bottom: 0; height: 50vh; display: flex; flex-direction: column;
+  background: var(--surface); border-top: 1px solid var(--line-2); border-radius: var(--r-lg) var(--r-lg) 0 0;
+  box-shadow: 0 -10px 40px rgba(0,0,0,.45); backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%); transition: height .32s cubic-bezier(.2,.8,.2,1);
+  padding-left: var(--sal); padding-right: var(--sar); }
+.sheet.dragging { transition: none; }
+.grab { flex: none; touch-action: none; cursor: grab; padding: 0 16px; }
+.handle { display: flex; justify-content: center; padding: 8px 0 6px; }
+.handle span { width: 38px; height: 5px; border-radius: 3px; background: var(--line-2); }
+.head-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.head-row h1 { font-size: 18px; margin: 0; letter-spacing: -.02em; flex: 1; min-width: 0; }
+.head-row h1 small { display: block; font-size: 12.5px; font-weight: 450; color: var(--muted); letter-spacing: 0; }
+.icon-btn { flex: none; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line-2);
+  background: var(--card); display: grid; place-items: center; cursor: pointer; color: var(--text); padding: 0; }
+.icon-btn:active { transform: scale(.94); }
+.sheet-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  padding: 2px 16px calc(var(--sab) + 20px); }
+.sheet-body::-webkit-scrollbar { width: 0; }
+@media (min-width: 900px) {
+  .sheet { left: calc(var(--sal) + 16px); top: 16px; bottom: 16px; right: auto; width: var(--panel-w); height: auto !important;
+    border-radius: var(--r-lg); border: 1px solid var(--line-2); box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  .handle { display: none; }
+  .grab { cursor: default; padding-top: 18px; touch-action: auto; }
+  .brand-pill { display: none; }
+  .maplibregl-ctrl-bottom-left { left: calc(var(--panel-w) + 32px); }
+  .map-hint { left: calc(50% + var(--panel-w) / 2 + 8px); top: 20px; }
+  .sheet-body { padding-bottom: 20px; }
+}
+@media (max-width: 899px) { .desk-only { display: none; } }
+
+/* segmented */
+.seg { position: relative; display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 13px;
+  background: rgba(255,255,255,.06); margin-bottom: 14px; }
+.seg button { position: relative; z-index: 1; border: 0; background: none; padding: 8px 6px; font-weight: 600;
+  font-size: 14px; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center;
+  gap: 7px; transition: color .2s; border-radius: 10px; }
+.seg button.on { color: var(--text); }
+.seg .ind { position: absolute; z-index: 0; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 10px;
+  background: var(--card-2); box-shadow: 0 2px 8px rgba(0,0,0,.35), inset 0 0 0 1px var(--line);
+  transition: transform .3s cubic-bezier(.2,.8,.2,1); }
+.seg.right .ind { transform: translateX(100%); }
+.seg.small { margin: 8px 0 0; grid-template-columns: repeat(3, 1fr); }
+.seg.small .ind { width: calc(33.333% - 2px); }
+.seg.small button { font-size: 13px; padding: 6px; }
+.rec-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--rec); box-shadow: 0 0 0 0 rgba(255,59,48,.6);
+  animation: pulse 1.6s infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,59,48,.55); } 70% { box-shadow: 0 0 0 7px rgba(255,59,48,0); } 100% { box-shadow: 0 0 0 0 rgba(255,59,48,0); } }
+
+/* views */
+.view { animation: fadeIn .28s ease both; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); padding: 14px; margin-bottom: 12px; }
+.card-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em; margin: 0 0 10px; }
+.card-title .opt { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--faint); }
+.step-n { width: 20px; height: 20px; border-radius: 50%; background: var(--accent-soft); color: var(--accent);
+  display: grid; place-items: center; font-size: 11.5px; font-weight: 700; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.tiny { font-size: 12px; }
+.hint { font-size: 12.5px; color: var(--muted); margin-top: 8px; line-height: 1.45; }
+.hint.warn { color: var(--warn); }
+
+/* drop zone */
+.drop { display: flex; align-items: center; gap: 14px; width: 100%; padding: 16px; border-radius: var(--r-sm);
+  border: 1.5px dashed var(--line-2); background: rgba(255,255,255,.02); cursor: pointer; text-align: left;
+  transition: border-color .2s, background .2s; }
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop.has { border-style: solid; border-color: rgba(255,122,69,.5); }
+.drop-ic { flex: none; width: 44px; height: 44px; border-radius: 12px; background: var(--card-2); display: grid; place-items: center; color: var(--accent); }
+.drop-t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drop-s { font-size: 12.5px; color: var(--muted); }
+.drop > div:last-child { min-width: 0; flex: 1; }
+
+/* fields */
+.field { margin-top: 12px; }
+.field:first-child { margin-top: 0; }
+.field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.input, select.input { width: 100%; height: 46px; padding: 0 12px; background: var(--bg); border: 1px solid var(--line-2);
+  border-radius: var(--r-sm); font-size: 16px; outline: none; transition: border-color .2s; -webkit-appearance: none; appearance: none; min-width: 0; }
+.input:focus { border-color: var(--accent); }
+.input.bad { border-color: var(--err); }
+select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238f97a8' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px; }
+input[type=datetime-local].input { display: block; line-height: 46px; }
+input[type=datetime-local]::-webkit-date-and-time-value { text-align: left; }
+.row2 { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 10px; }
+.switch-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; cursor: pointer; }
+.switch-row > span:first-child { flex: 1; font-size: 14px; min-width: 0; }
+.switch { position: relative; flex: none; width: 46px; height: 28px; }
+.switch input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.switch i { position: absolute; inset: 0; border-radius: 999px; background: rgba(255,255,255,.14); transition: background .2s; pointer-events: none; }
+.switch i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+  background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,.3); transition: transform .22s cubic-bezier(.2,.8,.2,1); }
+.switch input:checked + i { background: var(--ok); }
+.switch input:checked + i::after { transform: translateX(18px); }
+input[type=range] { width: 100%; accent-color: var(--accent); margin: 6px 0 0; height: 28px; }
+.zone-line { display: flex; align-items: center; gap: 10px; }
+.zone-line .zl-t { flex: 1; min-width: 0; font-size: 14px; }
+.zone-line .zl-t b { display: block; font-weight: 600; }
+.zone-line .zl-t span { color: var(--muted); font-size: 12.5px; }
+.link-btn { border: 0; background: none; color: var(--accent); font-weight: 600; font-size: 13.5px; cursor: pointer; padding: 6px 0; flex: none; }
+.range-head { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-top: 12px; }
+.range-head b { color: var(--text); font-weight: 600; }
+
+/* buttons */
+.btn { display: flex; align-items: center; justify-content: center; gap: 9px; width: 100%; height: 52px; border: 0;
+  border-radius: 15px; background: var(--accent); color: #1a0d06; font-weight: 700; font-size: 16px; cursor: pointer;
+  transition: transform .12s, opacity .2s, background .2s; letter-spacing: -.01em; text-decoration: none; }
+.btn:active { transform: scale(.98); }
+.btn:disabled { opacity: .4; cursor: default; transform: none; }
+.btn.ghost { background: var(--card-2); color: var(--text); border: 1px solid var(--line-2); font-weight: 600; }
+.btn.rec { background: var(--rec); color: #fff; }
+.btn.stop { background: #fff; color: #111; }
+.btn + .btn { margin-top: 10px; }
+.btn-row { display: flex; gap: 8px; margin-top: 10px; }
+.btn-row .btn { height: 42px; font-size: 14px; border-radius: 12px; }
+.btn-row .btn + .btn { margin-top: 0; }
+.spinner { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid currentColor; border-right-color: transparent;
+  animation: spin .8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* steps */
+.steps { list-style: none; margin: 0; padding: 0; }
+.steps li { position: relative; display: flex; gap: 12px; padding-bottom: 14px; }
+.steps li:last-child { padding-bottom: 0; }
+.steps li::before { content: ""; position: absolute; left: 11px; top: 26px; bottom: 2px; width: 2px; background: var(--line-2); border-radius: 1px; }
+.steps li:last-child::before { display: none; }
+.steps li.done::before { background: rgba(62,207,142,.45); }
+.st-dot { position: relative; z-index: 1; flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid;
+  place-items: center; background: var(--card-2); border: 1.5px solid var(--line-2); color: var(--faint); transition: all .3s; }
+.steps li.active .st-dot { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.steps li.done .st-dot { border-color: var(--ok); background: var(--ok); color: #06150e; }
+.steps li.fail .st-dot { border-color: var(--err); background: var(--err); color: #fff; }
+.steps li.skip .st-dot { opacity: .45; }
+.st-dot .spinner { width: 12px; height: 12px; border-width: 2px; }
+.st-body { flex: 1; min-width: 0; padding-top: 2px; }
+.st-t { font-weight: 600; font-size: 14.5px; color: var(--muted); transition: color .3s; }
+.steps li.active .st-t, .steps li.done .st-t { color: var(--text); }
+.st-s { font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+.pbar { height: 5px; background: rgba(255,255,255,.08); border-radius: 3px; overflow: hidden; margin-top: 7px; }
+.pbar i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 3px; transition: width .25s; }
+
+/* facts / lists */
+.fact { display: flex; gap: 11px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
+.fact:first-child { border-top: 0; padding-top: 0; }
+.fact:last-child { padding-bottom: 0; }
+.fact-ic { flex: none; width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: var(--card-2); color: var(--muted); }
+.fact-ic.ok { background: var(--ok-soft); color: var(--ok); }
+.fact-ic.acc { background: var(--accent-soft); color: var(--accent); }
+.fact-ic.warn { background: var(--warn-soft); color: var(--warn); }
+.fact-b { flex: 1; min-width: 0; font-size: 14px; }
+.fact-b b { font-weight: 600; }
+.fact-b .s { display: block; font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+.fly-list { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.fly-list li { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 11px; background: var(--card-2); font-size: 13.5px; }
+.fly-list li .tm { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 44px; font-size: 12.5px; }
+.fly-list li .v { flex: 1; min-width: 0; }
+.fly-list li .v b { font-weight: 600; }
+.fly-list li.new { animation: flash 1.4s ease; }
+@keyframes flash { 0% { background: rgba(255,122,69,.35); } 100% { background: var(--card-2); } }
+.strength { flex: none; display: flex; gap: 2px; align-items: flex-end; height: 14px; }
+.strength i { width: 3px; border-radius: 1px; background: var(--line-2); }
+.strength i.on { background: var(--accent); }
+.img-card { margin-top: 10px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: #0d0f14; }
+.img-card img { display: block; width: 100%; height: auto; }
+.img-cap { font-size: 12px; color: var(--muted); padding: 7px 10px; border-top: 1px solid var(--line); }
+
+details.adv { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); margin-bottom: 14px; }
+details.adv summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 14px; font-weight: 600; font-size: 14.5px; }
+details.adv summary::-webkit-details-marker { display: none; }
+details.adv summary::after { content: ""; flex: none; width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg); transition: transform .2s; margin: -4px 4px 0 0; }
+details.adv[open] summary::after { transform: rotate(-135deg); margin-top: 4px; }
+.adv-s { flex: 1; min-width: 0; text-align: right; font-weight: 450; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.adv-body { padding: 0 14px 14px; animation: fadeIn .25s ease both; }
+.adv-body .switch-row { margin-top: 14px; }
+input[type=date].input, input[type=time].input { display: block; line-height: 46px; }
+input[type=date]::-webkit-date-and-time-value, input[type=time]::-webkit-date-and-time-value { text-align: left; }
+details.more { margin-top: 4px; margin-bottom: 12px; }
+details.more summary { cursor: pointer; list-style: none; font-size: 13px; color: var(--muted); padding: 8px 2px; display: flex; align-items: center; gap: 6px; }
+details.more summary::-webkit-details-marker { display: none; }
+details.more summary::before { content: ""; width: 7px; height: 7px; border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor;
+  transform: rotate(-45deg); transition: transform .2s; margin-right: 3px; }
+details.more[open] summary::before { transform: rotate(45deg); }
+.log { background: #07080b; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; max-height: 260px; overflow: auto;
+  font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); white-space: pre-wrap; word-break: break-word; }
+
+/* result */
+.best { position: relative; overflow: hidden; border-radius: var(--r-md); padding: 16px; margin-bottom: 12px;
+  background: linear-gradient(150deg, rgba(255,122,69,.20), rgba(255,122,69,.05) 60%), var(--card);
+  border: 1px solid rgba(255,122,69,.35); }
+.best-k { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+.best-c { font-size: 22px; font-weight: 700; letter-spacing: -.02em; margin: 4px 0 2px; font-variant-numeric: tabular-nums; word-break: break-word; }
+.best-s { font-size: 13px; color: var(--muted); }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; font-size: 12.5px;
+  font-weight: 600; background: rgba(255,255,255,.07); color: var(--text); }
+.badge.ok { background: var(--ok-soft); color: var(--ok); }
+.badge.warn { background: var(--warn-soft); color: var(--warn); }
+.badge.err { background: var(--err-soft); color: var(--err); }
+.badge.acc { background: var(--accent-soft); color: var(--accent); }
+.badge.rec { background: rgba(255,59,48,.14); color: #ff6b62; }
+.cand { display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 13px; background: var(--card);
+  border: 1px solid var(--line); margin-bottom: 8px; cursor: pointer; transition: border-color .2s, background .2s; width: 100%; text-align: left; }
+.cand:hover { border-color: var(--line-2); }
+.cand:active { background: var(--card-2); }
+.cand-r { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700;
+  background: var(--card-2); color: var(--muted); }
+.cand.first .cand-r { background: var(--accent); color: #1a0d06; }
+.cand-b { flex: 1; min-width: 0; }
+.cand-b b { font-weight: 600; font-variant-numeric: tabular-nums; font-size: 14px; }
+.cand-b span { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cand-sc { flex: none; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.section-t { font-size: 13px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 18px 2px 8px; }
+
+.empty { text-align: center; padding: 22px 16px 18px; border-radius: var(--r-md); background: var(--card); border: 1px solid var(--line); margin-bottom: 12px; }
+.empty-ic { width: 58px; height: 58px; border-radius: 18px; margin: 0 auto 12px; display: grid; place-items: center; background: var(--card-2); color: var(--muted); }
+.empty-ic.err { background: var(--err-soft); color: var(--err); }
+.empty-ic.warn { background: var(--warn-soft); color: var(--warn); }
+.empty h2 { font-size: 18px; margin: 0 0 6px; letter-spacing: -.01em; }
+.empty p { margin: 0; color: var(--muted); font-size: 14px; }
+.tips { text-align: left; margin: 14px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.tips li { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; padding: 9px 11px; border-radius: 11px; background: var(--card-2); }
+.tips li svg { flex: none; color: var(--accent); margin-top: 1px; }
+
+/* live */
+.rec-head { display: flex; align-items: center; gap: 14px; }
+.timer { font-size: 44px; font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1; }
+.rec-state { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: #ff6b62; margin-bottom: 6px; }
+.rec-state.idle { color: var(--muted); }
+.meter { position: relative; height: 8px; border-radius: 4px; background: rgba(255,255,255,.08); overflow: hidden; margin-top: 14px; }
+.meter i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 4px;
+  background: linear-gradient(90deg, var(--ok) 0%, var(--ok) 60%, var(--warn) 85%, var(--err) 100%); background-size: 100% 100%; }
+.meter-l { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--faint); margin-top: 5px; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.stat { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 11px; min-width: 0; }
+.stat b { display: block; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.stat span { font-size: 11.5px; color: var(--muted); line-height: 1.25; display: block; }
+.banner { display: flex; gap: 10px; align-items: flex-start; padding: 11px 12px; border-radius: 13px; font-size: 13px; margin-bottom: 12px; line-height: 1.4; }
+.banner.warn { background: var(--warn-soft); color: #f7cf7c; border: 1px solid rgba(245,185,66,.25); }
+.banner.err { background: var(--err-soft); color: #ff9a9a; border: 1px solid rgba(255,93,93,.25); }
+.banner.info { background: rgba(255,255,255,.05); color: var(--muted); border: 1px solid var(--line); }
+.banner svg { flex: none; margin-top: 1px; }
+.banner b { color: var(--text); }
+.waiting { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 13px; background: var(--card-2); font-size: 13.5px; color: var(--muted); }
+.radar { position: relative; flex: none; width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--line-2); overflow: hidden; }
+.radar::after { content: ""; position: absolute; inset: 0; background: conic-gradient(from 0deg, rgba(255,122,69,.55), transparent 30%); animation: spin 2.2s linear infinite; }
+
+/* modal + toast */
+.modal { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; justify-content: center; background: rgba(0,0,0,.55);
+  opacity: 0; pointer-events: none; transition: opacity .25s; padding: 0 0 0; }
+.modal.open { opacity: 1; pointer-events: auto; }
+.modal-box { width: 100%; max-width: 520px; max-height: 88vh; overflow-y: auto; background: #151922; border: 1px solid var(--line-2);
+  border-radius: var(--r-lg) var(--r-lg) 0 0; padding: 22px 20px calc(var(--sab) + 20px); transform: translateY(30px); transition: transform .3s cubic-bezier(.2,.8,.2,1); }
+.modal.open .modal-box { transform: none; }
+@media (min-width: 640px) { .modal { align-items: center; } .modal-box { border-radius: var(--r-lg); padding-bottom: 22px; } }
+.modal-box h2 { margin: 0 0 14px; font-size: 20px; letter-spacing: -.02em; }
+.how { list-style: none; padding: 0; margin: 0 0 14px; display: grid; gap: 12px; }
+.how li { display: flex; gap: 12px; font-size: 14.5px; }
+.how li .step-n { flex: none; width: 24px; height: 24px; font-size: 12.5px; margin-top: 1px; }
+.toast-wrap { position: fixed; z-index: 60; left: 0; right: 0; top: calc(var(--sat) + 10px); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; padding: 0 16px; }
+.toast { max-width: 440px; padding: 11px 16px; border-radius: 14px; background: #232835; border: 1px solid var(--line-2); font-size: 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.45); animation: toastIn .3s cubic-bezier(.2,.8,.2,1); pointer-events: auto; }
+.toast.err { border-color: rgba(255,93,93,.4); }
+.toast.ok { border-color: rgba(62,207,142,.4); }
+@keyframes toastIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
+
+.plane-mk { pointer-events: none; }
 </style>
 </head>
 <body>
 <div id="map"></div>
 
-<div class="sheet" id="sheet">
-  <div class="grip"></div>
-
-  <section id="form">
-    <h1>Flyover Locator</h1>
-    <p class="sub">Localise un enregistrement grâce aux avions qu'on entend passer.</p>
-
-    <label>1 · Zone de recherche <span id="pickHint">(touche la carte)</span></label>
-    <input type="range" id="radius" min="5" max="100" value="30">
-    <div class="hint">Rayon : <span id="radiusVal">30</span> km. Plus la zone est petite, plus c'est rapide et fiable.</div>
-
-    <label>2 · Vidéo ou audio</label>
-    <div class="drop" id="drop">Dépose ou choisis un fichier<br><small>mp4, mov, m4a, wav, mp3…</small></div>
-    <input type="file" id="file" accept="video/*,audio/*" class="hidden">
-    <div class="check"><input type="checkbox" id="useMeta" checked><span>Utiliser l'heure inscrite dans la vidéo</span></div>
-
-    <label>3 · Date et heure de début (UTC), si connue</label>
-    <div class="row">
-      <input type="datetime-local" id="start" step="1">
-    </div>
-    <div class="row" style="margin-top:8px">
-      <div><label style="margin-top:0">Précision ± (minutes)</label><input type="number" id="tol" value="30" min="1" max="720"></div>
-    </div>
-    <div class="hint">Sans métadonnées, il faut au moins la date. Plus l'heure est précise, plus 1 seul avion suffit.</div>
-
-    <div id="pwWrap" class="hidden">
-      <label>Mot de passe</label>
-      <input type="password" id="pw" autocomplete="current-password">
-    </div>
-
-    <button id="go" disabled>Choisis une zone et un fichier</button>
-  </section>
-
-  <section id="progress" class="hidden">
-    <h1 id="pTitle">Analyse en cours…</h1>
-    <div class="bar"><i id="barFill"></i></div>
-    <div class="log" id="log"></div>
-    <div class="imgs" id="flyImg"></div>
-  </section>
-
-  <section id="results" class="hidden">
-    <h1>Résultats</h1>
-    <p class="sub" id="rSub"></p>
-    <div id="rList"></div>
-    <div class="imgs" id="rImgs"></div>
-    <button class="ghost" id="again">Nouvelle recherche</button>
-  </section>
+<div class="brand-pill" id="brandPill">
+  <span class="logo"><svg viewBox="0 0 24 24" fill="#fff"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg></span>
+  Flyover Locator
 </div>
+<div class="map-hint" id="mapHint">Touche la carte pour placer la zone</div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+<aside class="sheet" id="sheet">
+  <div class="grab" id="grab">
+    <div class="handle" id="handle"><span></span></div>
+    <div class="head-row">
+      <span class="logo desk-only"><svg viewBox="0 0 24 24" fill="#fff"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg></span>
+      <h1><span class="desk-only">Flyover Locator</span><span class="mob-title" id="mobTitle"></span>
+        <small id="headSub">Localise un enregistrement grâce aux avions qu'on y entend</small></h1>
+      <button class="icon-btn" id="aboutBtn" aria-label="Comment ça marche">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9.5"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6"/><circle cx="12" cy="17.2" r=".6" fill="currentColor"/></svg>
+      </button>
+    </div>
+    <div class="seg" id="modeSeg">
+      <span class="ind"></span>
+      <button data-mode="file" class="on">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>Fichier</button>
+      <button data-mode="live"><span class="rec-dot" id="segRecDot" hidden></span>
+        <svg id="segMicIc" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>Enregistrer</button>
+    </div>
+  </div>
+
+  <div class="sheet-body" id="body">
+    <!-- password -->
+    <div class="card" id="pwCard" hidden>
+      <div class="field">
+        <label for="pw">Mot de passe de l'appli</label>
+        <input class="input" type="password" id="pw" autocomplete="current-password" placeholder="••••••">
+      </div>
+    </div>
+
+    <!-- ============== FILE: form -->
+    <section class="view" data-view="file-form">
+      <div class="card">
+        <div class="card-title"><span class="step-n">1</span>Vidéo ou audio</div>
+        <button class="drop" id="drop" type="button">
+          <span class="drop-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></span>
+          <div><div class="drop-t" id="dropT">Choisir un fichier</div><div class="drop-s" id="dropS">mp4, mov, m4a, wav, mp3… · fichier original de préférence</div></div>
+        </button>
+        <input type="file" id="file" accept="video/*,audio/*,.m4a,.wav,.mp3,.mov,.mp4,.aac,.flac,.ogg,.webm" hidden>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="step-n">2</span>Date de l'enregistrement</div>
+        <div class="row2">
+          <div class="field"><label for="date">Date</label><input class="input" type="date" id="date"></div>
+          <div class="field"><label for="time">Heure UTC <span class="muted">· option</span></label><input class="input" type="time" id="time" step="1"></div>
+        </div>
+        <div class="hint" id="timeHint"></div>
+      </div>
+
+      <details class="adv" id="adv">
+        <summary><span>Options avancées</span><span class="adv-s" id="advSum"></span></summary>
+        <div class="adv-body">
+          <div class="field"><label for="tol">Précision de l'heure</label>
+            <select class="input" id="tol">
+              <option value="5">± 5 min</option><option value="15">± 15 min</option><option value="30" selected>± 30 min</option>
+              <option value="60">± 1 h</option><option value="180">± 3 h</option><option value="720">± 12 h</option>
+            </select></div>
+          <label class="switch-row"><span>Utiliser l'heure inscrite dans la vidéo<span class="muted tiny" style="display:block">Si le fichier la contient, elle remplace la date saisie.</span></span>
+            <span class="switch"><input type="checkbox" id="useMeta" checked><i></i></span></label>
+          <div class="field" style="margin-top:16px"><label>Zone de recherche</label>
+            <div class="zone-line">
+              <div class="zl-t" id="fZoneT"></div>
+              <button class="link-btn" id="fZoneClear" hidden>Retirer</button>
+            </div>
+            <div id="fZoneRadius" hidden>
+              <div class="range-head"><span>Rayon</span><b class="num"><span id="fRadV">30</span> km</b></div>
+              <input type="range" id="fRad" min="1" max="100" value="30" step="1">
+            </div>
+            <div class="hint">Sans zone, on cherche partout où il y a des données d'avions. Une zone rend la recherche plus rapide et plus fiable.</div>
+          </div>
+        </div>
+      </details>
+
+      <button class="btn" id="goBtn" disabled>Choisis un fichier</button>
+      <button class="btn ghost" id="detectBtn" disabled>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 7v10M21 12h0"/></svg>Juste détecter les avions</button>
+      <p class="hint" style="text-align:center;margin-top:12px">À utiliser sur tes propres enregistrements.</p>
+    </section>
+
+    <!-- ============== FILE: progress -->
+    <section class="view" data-view="file-progress" hidden>
+      <div class="card">
+        <ol class="steps" id="steps"></ol>
+      </div>
+      <div id="fAudio"></div>
+      <div id="fError"></div>
+      <details class="more"><summary>Détails techniques</summary><div class="log" id="fLog"></div></details>
+      <button class="btn ghost" id="fCancel">Retour au formulaire</button>
+    </section>
+
+    <!-- ============== FILE: result -->
+    <section class="view" data-view="file-result" hidden>
+      <div id="fResult"></div>
+      <div id="fAudio2"></div>
+      <details class="more"><summary>Détails techniques</summary><div class="log" id="fLog2"></div></details>
+      <button class="btn ghost" id="fAgain">Nouvelle recherche</button>
+    </section>
+
+    <!-- ============== LIVE: setup -->
+    <section class="view" data-view="live-setup" hidden>
+      <div class="card">
+        <div class="card-title"><span class="step-n">1</span>Zone de recherche</div>
+        <div class="zone-line">
+          <div class="zl-t" id="lZoneT"><b>France</b><span>Touche la carte pour déplacer le centre</span></div>
+        </div>
+        <div class="range-head"><span>Rayon</span><b class="num"><span id="lRadV">450</span> km</b></div>
+        <input type="range" id="lRad" min="5" max="450" value="450" step="5">
+        <div class="hint">Une grande zone marche, mais une zone plus petite donne un résultat plus vite.</div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="step-n">2</span>Avant de lancer</div>
+        <div class="fact"><span class="fact-ic acc"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg></span>
+          <div class="fact-b">Il faut au moins <b>un avion à hélice</b> qui passe à moins de ~3 km.<span class="s">Les jets ne servent pas. Ça marche mieux dehors, de jour, près d'un aérodrome.</span></div></div>
+        <div class="fact"><span class="fact-ic warn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg></span>
+          <div class="fact-b">Garde l'<b>écran allumé</b> et la page ouverte.<span class="s">iOS coupe le micro dès que l'écran se verrouille ou que tu changes d'appli.</span></div></div>
+        <div class="fact"><span class="fact-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+          <div class="fact-b">Compte <b>au moins 5–10 minutes</b>.<span class="s">Première analyse après ~40 s, puis la zone se resserre à chaque avion entendu.</span></div></div>
+      </div>
+      <div id="lSetupErr"></div>
+      <button class="btn rec" id="lStart">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="7"/></svg>Démarrer l'enregistrement</button>
+      <p class="hint" style="text-align:center;margin-top:12px">L'audio est envoyé au serveur (1000 échantillons/s, pas de voix intelligible).</p>
+    </section>
+
+    <!-- ============== LIVE: recording / final -->
+    <section class="view" data-view="live-rec" hidden>
+      <div class="card">
+        <div class="rec-state" id="lState"><span class="rec-dot"></span>Enregistrement</div>
+        <div class="rec-head"><div class="timer" id="lTimer">0:00</div></div>
+        <div id="lMeterWrap">
+          <div class="meter"><i id="lMeter"></i></div>
+          <div class="meter-l"><span>Niveau micro</span><span id="lUp" class="num"></span></div>
+        </div>
+      </div>
+      <div id="lBanners"></div>
+      <div class="stats">
+        <div class="stat"><b id="sAc">–</b><span>avions autour</span></div>
+        <div class="stat"><b id="sProp">–</b><span>à hélice</span></div>
+        <div class="stat"><b id="sHeard">0</b><span>entendus</span></div>
+      </div>
+      <div id="lResult"></div>
+      <div class="card">
+        <div class="card-title">Avions entendus</div>
+        <div id="lFits"></div>
+      </div>
+      <div class="card" id="lEnfCard"><div id="lEnf"></div></div>
+      <div id="lImg"></div>
+      <details class="more"><summary>Détails techniques</summary><div class="log" id="lLog"></div></details>
+      <div id="lActions"></div>
+    </section>
+  </div>
+</aside>
+
+<div class="modal" id="about" aria-hidden="true">
+  <div class="modal-box" role="dialog" aria-labelledby="aboutT">
+    <h2 id="aboutT">Comment ça marche</h2>
+    <ul class="how">
+      <li><span class="step-n">1</span><span>Quand un avion à hélice passe, la hauteur de son bruit descend (effet Doppler). La forme de cette courbe donne sa vitesse et à quelle distance il est passé.</span></li>
+      <li><span class="step-n">2</span><span>On compare ces courbes aux trajectoires réelles des avions (données ADS-B publiques) à l'heure de l'enregistrement.</span></li>
+      <li><span class="step-n">3</span><span>Le seul endroit où toutes les courbes collent, c'est là où le micro se trouvait. Le bourdonnement du réseau électrique (50 ou 60 Hz) aide à deviner le continent.</span></li>
+      <li><span class="step-n">4</span><span>Les jets volent trop haut et sonnent trop large : seuls les avions à hélice servent.</span></li>
+    </ul>
+    <div class="banner warn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/></svg>
+      <span><b>À utiliser sur tes propres enregistrements</b>, ou avec l'accord des personnes concernées. Ne t'en sers pas pour retrouver ou suivre quelqu'un.</span></div>
+    <button class="btn ghost" id="aboutClose">Compris</button>
+  </div>
+</div>
+<div class="toast-wrap" id="toasts"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
 <script>
+'use strict';
+/* ====================================================================== utils */
 const $ = id => document.getElementById(id);
-const map = L.map('map', { zoomControl: false }).setView([39.5, -98.35], 4);
-L.control.zoom({ position: 'topright' }).addTo(map);
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-  maxZoom: 16, attribution: 'Esri' }).addTo(map);
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
-  maxZoom: 16 }).addTo(map);
-const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-  { maxZoom: 19, attribution: 'Esri' });
-L.control.layers({}, { 'Satellite': sat }, { position: 'topright' }).addTo(map);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+const isApple = /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent);
+const fmtTime = s => {
+  s = Math.max(0, Math.floor(s || 0));
+  const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, ss = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+};
+const kmh = v => Math.round(v * 3.6);
+const fmtDist = d => d < 1000 ? `${Math.round(d / 10) * 10} m` : `${(d / 1000).toFixed(1).replace('.', ',')} km`;
+const fmtCoord = (lat, lon) => `${(+lat).toFixed(5)}, ${(+lon).toFixed(5)}`;
+const utcStr = unix => new Date(unix * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+const localHM = unix => new Date(unix * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+const svgIc = {
+  plane: '<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg>',
+  bolt: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>',
+  check: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
+  x: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  warn: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/></svg>',
+  dot: '<svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" fill="currentColor"/></svg>',
+  pin: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
+  arrow: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg>',
+  eye: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  copy: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>',
+  search: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>',
+  mute: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m22 9-6 6M16 9l6 6"/></svg>',
+};
 
-let center = null, circle = null, file = null, needPw = false, layers = [];
-const store = { get: k => { try { return localStorage.getItem(k) } catch { return null } },
-                set: (k, v) => { try { localStorage.setItem(k, v) } catch {} } };
+function toast(msg, kind = '') {
+  const t = document.createElement('div');
+  t.className = 'toast ' + kind; t.textContent = msg;
+  $('toasts').appendChild(t);
+  setTimeout(() => { t.style.transition = 'opacity .3s'; t.style.opacity = 0; setTimeout(() => t.remove(), 320); }, 4200);
+}
 
-fetch('api/config').then(r => r.json()).then(c => {
-  needPw = c.password; $('radius').max = c.max_radius_km;
-  if (needPw) { $('pwWrap').classList.remove('hidden'); $('pw').value = store.get('pw') || ''; }
+/* ====================================================================== config / API */
+let cfg = { password: false, max_radius_km: 100, max_live_radius_km: 450 };
+let pw = store.get('pw') || '';
+$('pw').value = pw;
+$('pw').addEventListener('input', () => { pw = $('pw').value; store.set('pw', pw); $('pw').classList.remove('bad'); });
+
+function hdrs(extra = {}) { const h = { ...extra }; if (cfg.password) h['X-Password'] = pw; return h; }
+const pwq = () => 'pw=' + encodeURIComponent(cfg.password ? pw : '');
+async function api(path, opts = {}) {
+  const r = await fetch('api/' + path, { ...opts, headers: hdrs(opts.headers || {}) });
+  if (!r.ok) {
+    let d = null; try { d = (await r.json()).detail; } catch {}
+    if (r.status === 401) badPassword();
+    const e = new Error(r.status === 401 ? 'Mot de passe incorrect' : (typeof d === 'string' ? d : `Erreur serveur (${r.status})`));
+    e.status = r.status; throw e;
+  }
+  return r.json();
+}
+function badPassword() {
+  $('pwCard').hidden = false; $('pw').classList.add('bad');
+  toast('Mot de passe incorrect', 'err');
+}
+const cfgReady = fetch('api/config').then(r => r.json()).then(c => {
+  cfg = { ...cfg, ...c };
+  $('pwCard').hidden = !cfg.password;
+  $('fRad').max = cfg.max_radius_km;
+  $('lRad').max = cfg.max_live_radius_km;
+  if (+$('lRad').value > cfg.max_live_radius_km) $('lRad').value = cfg.max_live_radius_km;
+  live.zone.r = +$('lRad').value; $('lRadV').textContent = live.zone.r;
+  if (mode === 'live') renderZone();
+}).catch(() => toast('Serveur injoignable', 'err'));
+
+/* ====================================================================== map */
+const STYLE = 'https://tiles.openfreemap.org/styles/dark';
+const FR = [2.4, 46.6];
+const map = new maplibregl.Map({
+  container: 'map', style: STYLE, center: FR, zoom: innerWidth < 900 ? 4.4 : 5,
+  dragRotate: false, pitchWithRotate: false, touchPitch: false, maxPitch: 0,
+  attributionControl: { compact: true }, fadeDuration: 150,
+});
+map.touchZoomRotate.disableRotation();
+map.keyboard.disableRotation();
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+
+class SatControl {
+  onAdd() {
+    const c = document.createElement('div'); c.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    const b = document.createElement('button'); b.className = 'sat-btn'; b.type = 'button'; b.title = 'Vue satellite';
+    b.setAttribute('aria-label', 'Vue satellite');
+    b.innerHTML = '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg>';
+    b.onclick = () => { satOn = !satOn; b.classList.toggle('on', satOn); applySat(); };
+    c.appendChild(b); return c;
+  }
+  onRemove() {}
+}
+let satOn = false, mapReady = false, pendingFit = null;
+map.addControl(new SatControl(), 'top-right');
+function applySat() { if (mapReady) map.setLayoutProperty('sat', 'visibility', satOn ? 'visible' : 'none'); }
+
+const EMPTY = { type: 'FeatureCollection', features: [] };
+function firstLayer(ids) { return ids.find(id => map.getLayer(id)); }
+
+function planeImage() {
+  const S = 64, c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.translate(S / 2, S / 2); g.scale(S / 26, S / 26); g.translate(-12, -12);
+  g.fill(new Path2D('M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z'));
+  return g.getImageData(0, 0, S, S);
+}
+
+map.on('load', () => {
+  const below = firstLayer(['boundary_state', 'highway_name_other', 'place_other']);
+  map.addSource('sat', { type: 'raster', tileSize: 256, maxzoom: 19,
+    tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+    attribution: 'Imagerie © Esri, Maxar, Earthstar Geographics' });
+  map.addLayer({ id: 'sat', type: 'raster', source: 'sat', layout: { visibility: 'none' }, paint: { 'raster-fade-duration': 200 } }, below);
+
+  for (const s of ['zone', 'heat', 'tops', 'aircraft']) map.addSource(s, { type: 'geojson', data: EMPTY });
+  const labelBelow = firstLayer(['highway_name_other', 'place_other']);
+  map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zone', filter: ['==', '$type', 'Polygon'],
+    paint: { 'fill-color': '#ff7a45', 'fill-opacity': ['case', ['get', 'dim'], 0.03, 0.08] } }, labelBelow);
+  map.addLayer({ id: 'zone-line', type: 'line', source: 'zone', filter: ['==', '$type', 'Polygon'],
+    paint: { 'line-color': '#ff7a45', 'line-width': 2, 'line-opacity': ['case', ['get', 'dim'], 0.35, 0.9],
+      'line-dasharray': [3, 2] } });
+  map.addLayer({ id: 'zone-center', type: 'circle', source: 'zone', filter: ['==', '$type', 'Point'],
+    paint: { 'circle-radius': 5, 'circle-color': '#ff7a45', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2,
+      'circle-opacity': ['case', ['get', 'dim'], 0.4, 1], 'circle-stroke-opacity': ['case', ['get', 'dim'], 0.4, 1] } });
+  map.addLayer({ id: 'heat', type: 'heatmap', source: 'heat', maxzoom: 17, paint: {
+    'heatmap-weight': ['coalesce', ['get', 'w'], 0.5],
+    'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 4, 0.7, 10, 1.2, 15, 2.2],
+    'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 4, 5, 8, 12, 12, 22, 16, 45],
+    'heatmap-opacity': 0.85,
+    'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'],
+      0, 'rgba(255,90,40,0)', 0.15, 'rgba(255,90,40,0.25)', 0.4, 'rgba(255,110,60,0.6)',
+      0.65, '#ff8a3d', 0.85, '#ffc061', 1, '#fff2c2'] } }, labelBelow);
+
+  map.addImage('plane', planeImage(), { sdf: true, pixelRatio: 2 });
+  map.addLayer({ id: 'aircraft', type: 'symbol', source: 'aircraft', layout: {
+    'icon-image': 'plane', 'icon-size': ['case', ['get', 'prop'], 0.62, 0.45], 'icon-rotate': ['get', 'brg'],
+    'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+    'symbol-sort-key': ['case', ['get', 'prop'], 1, 0],
+    'text-field': ['step', ['zoom'], '', 7, ['case', ['get', 'prop'], ['get', 'label'], '']],
+    'text-font': ['Noto Sans Regular'], 'text-size': 11, 'text-offset': [0, 1.5], 'text-anchor': 'top', 'text-optional': true },
+    paint: { 'icon-color': ['case', ['get', 'prop'], '#ffb27a', '#6b7385'], 'icon-opacity': ['case', ['get', 'prop'], 1, 0.55],
+      'icon-halo-color': 'rgba(0,0,0,.75)', 'icon-halo-width': 1.2,
+      'text-color': '#ffd2b3', 'text-halo-color': 'rgba(0,0,0,.85)', 'text-halo-width': 1.4 } });
+
+  map.addLayer({ id: 'tops-halo', type: 'circle', source: 'tops', filter: ['==', ['get', 'rank'], 1],
+    paint: { 'circle-radius': 22, 'circle-color': '#ff7a45', 'circle-opacity': 0.18, 'circle-blur': 0.4 } });
+  map.addLayer({ id: 'tops', type: 'circle', source: 'tops', paint: {
+    'circle-radius': ['case', ['==', ['get', 'rank'], 1], 11, 8],
+    'circle-color': ['case', ['==', ['get', 'rank'], 1], '#ff7a45', '#2a3040'],
+    'circle-stroke-color': ['case', ['==', ['get', 'rank'], 1], '#ffffff', '#aab2c2'], 'circle-stroke-width': 2 } });
+  map.addLayer({ id: 'tops-label', type: 'symbol', source: 'tops', layout: {
+    'text-field': ['to-string', ['get', 'rank']], 'text-font': ['Noto Sans Regular'],
+    'text-size': ['case', ['==', ['get', 'rank'], 1], 12, 10.5], 'text-allow-overlap': true, 'text-ignore-placement': true,
+    'symbol-sort-key': ['-', 0, ['get', 'rank']] },
+    paint: { 'text-color': ['case', ['==', ['get', 'rank'], 1], '#1a0d06', '#e6e9ef'] } });
+
+  for (const id of ['tops', 'aircraft']) {
+    map.on('mouseenter', id, () => map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', id, () => map.getCanvas().style.cursor = '');
+  }
+  mapReady = true;
+  applySat();
+  renderMap();
+  if (pendingFit) { const [r, pr] = pendingFit; pendingFit = null; fitResult(r, pr); }
+});
+map.on('styleimagemissing', e => { if (!map.hasImage(e.id)) map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) }); });
+map.on('error', e => console.warn('map:', e && e.error && e.error.message));
+
+/* per-mode map state */
+const mapState = { file: { tops: [], heat: [] }, live: { tops: [], heat: [], aircraft: [] } };
+
+function circlePoly(lat, lon, rKm, n = 64) {
+  const pts = [], R = 6371.0088, d = rKm / R, la = lat * Math.PI / 180, lo = lon * Math.PI / 180;
+  for (let i = 0; i <= n; i++) {
+    const b = 2 * Math.PI * i / n;
+    const la2 = Math.asin(Math.sin(la) * Math.cos(d) + Math.cos(la) * Math.sin(d) * Math.cos(b));
+    const lo2 = lo + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(la), Math.cos(d) - Math.sin(la) * Math.sin(la2));
+    pts.push([lo2 * 180 / Math.PI, la2 * 180 / Math.PI]);
+  }
+  return pts;
+}
+function zoneGeo(z, dim = false) {
+  if (!z) return EMPTY;
+  if (z.bbox) {
+    const [a, b, c, d] = z.bbox;
+    return { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { dim: true },
+      geometry: { type: 'Polygon', coordinates: [[[b, a], [d, a], [d, c], [b, c], [b, a]]] } }] };
+  }
+  return { type: 'FeatureCollection', features: [
+    { type: 'Feature', properties: { dim }, geometry: { type: 'Polygon', coordinates: [circlePoly(z.lat, z.lon, z.r)] } },
+    { type: 'Feature', properties: { dim }, geometry: { type: 'Point', coordinates: [z.lon, z.lat] } }] };
+}
+function currentZone() {
+  if (mode === 'file') {
+    if (file.view === 'file-form') return { z: file.zone, dim: false };
+    const a = file.result && file.result.area;
+    if (a) return { z: a.bbox ? { bbox: a.bbox } : { lat: a.lat, lon: a.lon, r: a.radius_km }, dim: true };
+    return { z: file.zone, dim: true };
+  }
+  return { z: live.zone, dim: live.view !== 'live-setup' };
+}
+function renderZone() {
+  if (!mapReady) return;
+  const { z, dim } = currentZone();
+  map.getSource('zone').setData(zoneGeo(z, dim));
+}
+function renderMap() {
+  if (!mapReady) return;
+  renderZone();
+  const s = mapState[mode];
+  map.getSource('heat').setData({ type: 'FeatureCollection', features: (s.heat || []).map(([la, lo, w]) => ({
+    type: 'Feature', properties: { w }, geometry: { type: 'Point', coordinates: [lo, la] } })) });
+  map.getSource('tops').setData({ type: 'FeatureCollection', features: (s.tops || []).slice(0, 5).map((t, i) => ({
+    type: 'Feature', properties: { rank: i + 1, idx: i }, geometry: { type: 'Point', coordinates: [t.lon, t.lat] } })).reverse() });
+  map.getSource('aircraft').setData({ type: 'FeatureCollection', features: mode === 'live' ? (s.aircraft || []) : [] });
+}
+
+function mapPadding() {
+  const W = innerWidth, H = innerHeight;
+  if (isDesk()) return { top: 50, bottom: 50, left: $('sheet').offsetWidth + 60, right: 80 };
+  const sh = $('sheet').offsetHeight;
+  return { top: 70, bottom: Math.min(sh + 24, H - 190), left: 30, right: 60 };
+}
+function resultBounds(res) {
+  const b = new maplibregl.LngLatBounds();
+  let n = 0;
+  (res.top || []).slice(0, 5).forEach(t => { b.extend([t.lon, t.lat]); n++; });
+  const heat = (res.heat || []).filter(h => h[2] >= 0.6).slice(0, 2000);
+  heat.forEach(h => { b.extend([h[1], h[0]]); n++; });
+  return n ? b : null;
+}
+function fitResult(res, progressive) {
+  if (!mapReady) { pendingFit = [res, progressive]; return; }
+  const b = resultBounds(res); if (!b) return;
+  const padding = mapPadding();
+  if (!progressive) { map.fitBounds(b, { padding, maxZoom: 14.5, duration: 1600, essential: true }); return; }
+  const cam = map.cameraForBounds(b, { padding, maxZoom: 15 });
+  let z = cam ? cam.zoom : 10;
+  z = Math.min(15, Math.max(z, (live.lastZoom || 0) + 0.6));
+  live.lastZoom = z;
+  map.flyTo({ center: b.getCenter(), zoom: z, offset: [(padding.left - padding.right) / 2, (padding.top - padding.bottom) / 2],
+    speed: 0.7, curve: 1.5, essential: true });
+}
+function focusPoint(t, rank) {
+  const p = mapPadding();
+  map.flyTo({ center: [t.lon, t.lat], zoom: Math.max(map.getZoom(), 14), offset: [(p.left - p.right) / 2, (p.top - p.bottom) / 2], speed: 1.1 });
+  openTopPopup(t, rank);
+}
+let popup = null;
+function openTopPopup(t, rank) {
+  if (popup) popup.remove();
+  popup = new maplibregl.Popup({ offset: 14, maxWidth: '260px' }).setLngLat([t.lon, t.lat]).setHTML(
+    `<div class="pop-title">#${rank} · ${fmtCoord(t.lat, t.lon)}</div>
+     <div class="pop-sub">score ${(+t.score).toFixed(2)}${t.flights && t.flights.length ? ' · ' + esc(t.flights.join(' → ')) : ''}</div>
+     <div class="pop-links"><a href="${svUrl(t)}" target="_blank" rel="noopener">Street View</a><a href="${mapsUrl(t)}" target="_blank" rel="noopener">Ouvrir dans Maps</a></div>`).addTo(map);
+}
+const svUrl = t => `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${t.lat},${t.lon}`;
+const mapsUrl = t => isApple ? `https://maps.apple.com/?ll=${t.lat},${t.lon}&q=${t.lat},${t.lon}&t=k`
+  : `https://www.google.com/maps/search/?api=1&query=${t.lat},${t.lon}`;
+
+map.on('click', e => {
+  if (!mapReady) return;
+  const hit = map.queryRenderedFeatures(e.point, { layers: ['tops', 'aircraft'] });
+  const top = hit.find(f => f.layer.id === 'tops');
+  if (top) { const i = top.properties.idx; openTopPopup(mapState[mode].tops[i], i + 1); return; }
+  const ac = hit.find(f => f.layer.id === 'aircraft');
+  if (ac) {
+    const p = ac.properties;
+    if (popup) popup.remove();
+    popup = new maplibregl.Popup({ offset: 10, closeButton: false }).setLngLat(ac.geometry.coordinates)
+      .setHTML(`<div class="pop-title">${esc(p.type || 'Type inconnu')} ${p.prop ? '· hélice' : '· jet'}</div><div class="pop-sub" style="margin:0">${esc(p.alt)} m · ${esc(p.hex)}</div>`).addTo(map);
+    return;
+  }
+  const ll = e.lngLat;
+  if (mode === 'file' && file.view === 'file-form') {
+    file.zone = { lat: ll.lat, lon: ll.lng, r: +$('fRad').value };
+    if (!$('adv').open) $('adv').open = true;
+    updateFileZoneUI(); renderZone(); hideHint();
+  } else if (mode === 'live' && live.view === 'live-setup') {
+    live.zone.lat = ll.lat; live.zone.lon = ll.lng; live.zone.named = false;
+    updateLiveZoneUI(); renderZone(); hideHint();
+  }
+});
+let hintTimer;
+function showHint(text, ms = 4000) {
+  $('mapHint').textContent = text; $('mapHint').classList.add('show');
+  clearTimeout(hintTimer); hintTimer = setTimeout(hideHint, ms);
+}
+function hideHint() { $('mapHint').classList.remove('show'); }
+
+/* ====================================================================== sheet */
+const sheet = $('sheet');
+const isDesk = () => matchMedia('(min-width: 900px)').matches;
+let snap = 'half';
+function safeBottom() { const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sab-px')); return isNaN(v) ? 0 : v; }
+function snapHeights() {
+  const H = innerHeight;
+  const peek = $('grab').offsetHeight + 6;
+  return { peek, half: Math.max(peek + 120, Math.round(H * 0.5)), full: Math.round(H - 150 - (parseFloat(getComputedStyle($('brandPill')).top) || 0) + 10) };
+}
+function setSheetH(h) {
+  sheet.style.height = h + 'px';
+  document.documentElement.style.setProperty('--sheet-h', h + 'px');
+}
+function setSnap(name) {
+  snap = name;
+  if (isDesk()) { sheet.style.height = ''; document.documentElement.style.setProperty('--sheet-h', '0px'); return; }
+  setSheetH(snapHeights()[name]);
+}
+(function sheetDrag() {
+  const grab = $('grab');
+  let y0 = 0, h0 = 0, dragging = false, down = false, lastY = 0, lastT = 0, vel = 0, suppress = false;
+  grab.addEventListener('pointerdown', e => {
+    if (isDesk() || e.button > 0) return;
+    down = true; dragging = false; y0 = lastY = e.clientY; lastT = performance.now(); h0 = sheet.offsetHeight; vel = 0;
+  });
+  window.addEventListener('pointermove', e => {
+    if (!down) return;
+    const dy = e.clientY - y0;
+    if (!dragging && Math.abs(dy) > 7) { dragging = true; sheet.classList.add('dragging'); }
+    if (!dragging) return;
+    const s = snapHeights();
+    const now = performance.now(); vel = (e.clientY - lastY) / Math.max(1, now - lastT); lastY = e.clientY; lastT = now;
+    setSheetH(Math.max(s.peek - 20, Math.min(s.full + 10, h0 - dy)));
+  });
+  const end = e => {
+    if (!down) return; down = false;
+    if (!dragging) {
+      if (e.target.closest && e.target.closest('#handle')) setSnap(snap === 'full' ? 'half' : snap === 'half' ? 'peek' : 'half');
+      return;
+    }
+    sheet.classList.remove('dragging'); suppress = true; setTimeout(() => suppress = false, 50);
+    const s = snapHeights(), h = sheet.offsetHeight;
+    let target;
+    if (vel < -0.6) target = h > s.half ? 'full' : 'half';
+    else if (vel > 0.6) target = h < s.half ? 'peek' : 'half';
+    else target = ['peek', 'half', 'full'].reduce((a, k) => Math.abs(s[k] - h) < Math.abs(s[a] - h) ? k : a, 'peek');
+    setSnap(target);
+  };
+  window.addEventListener('pointerup', end);
+  window.addEventListener('pointercancel', end);
+  grab.addEventListener('click', e => { if (suppress) { e.stopPropagation(); e.preventDefault(); } }, true);
+})();
+addEventListener('resize', () => setSnap(snap));
+$('body').addEventListener('focusin', e => { if (!isDesk() && snap !== 'full' && e.target.matches('input:not([type=range]):not([type=checkbox]), select')) setSnap('full'); });
+
+/* ====================================================================== modes & views */
+let mode = 'file';
+const file = { view: 'file-form', zone: null, file: null, kind: 'locate', job: null, result: null, pollId: 0 };
+const live = { view: 'live-setup', zone: { lat: 46.6, lon: 2.4, r: 450, named: true }, sid: null, lastZoom: 0 };
+
+function showView(name) {
+  document.querySelectorAll('[data-view]').forEach(s => s.hidden = !(s.dataset.view === name));
+  if (name.startsWith('file')) file.view = name; else live.view = name;
+  $('body').scrollTop = 0;
+  renderMap();
+}
+function setMode(m) {
+  mode = m;
+  $('modeSeg').classList.toggle('right', m === 'live');
+  $('modeSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+  showView(m === 'file' ? file.view : live.view);
+  if (popup) popup.remove();
+  if (m === 'live' && live.view === 'live-setup' && mapReady) {
+    const z = live.zone, d = z.r / 111;
+    map.fitBounds([[z.lon - d * 1.4, z.lat - d], [z.lon + d * 1.4, z.lat + d]], { padding: mapPadding(), duration: 900, maxZoom: 11 });
+    showHint('Touche la carte pour déplacer la zone');
+  } else if (m === 'file' && file.result) fitResult(file.result, false);
+  else if (m === 'live' && live.result) fitResult(live.result, false);
+}
+$('modeSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (b && b.dataset.mode !== mode) setMode(b.dataset.mode); });
+
+$('aboutBtn').onclick = () => { $('about').classList.add('open'); $('about').setAttribute('aria-hidden', 'false'); };
+const closeAbout = () => { $('about').classList.remove('open'); $('about').setAttribute('aria-hidden', 'true'); };
+$('aboutClose').onclick = closeAbout;
+$('about').addEventListener('click', e => { if (e.target.id === 'about') closeAbout(); });
+addEventListener('keydown', e => { if (e.key === 'Escape') closeAbout(); });
+
+/* ====================================================================== shared renderers */
+function strengthBars(s) {
+  const n = s >= 6 ? 4 : s >= 4 ? 3 : s >= 2.5 ? 2 : 1;
+  return `<span class="strength" title="netteté du signal">${[5, 8, 11, 14].map((h, i) => `<i class="${i < n ? 'on' : ''}" style="height:${h}px"></i>`).join('')}</span>`;
+}
+function fitsList(fits, t0, newSet) {
+  const sorted = [...fits].sort((a, b) => a.tc - b.tc);
+  return `<ul class="fly-list">${sorted.map(f => {
+    const key = Math.round(f.tc) + ':' + Math.round(f.f0);
+    const clock = t0 ? ` · ${localHM(t0 + f.tc)}` : '';
+    return `<li class="${newSet && newSet.has(key) ? 'new' : ''}"><span class="tm">${fmtTime(f.tc)}</span>
+      <span class="v"><b>~${kmh(f.v)} km/h</b> · passé à ~${fmtDist(f.d)}<span class="muted tiny">${clock} · ${Math.round(f.f0)} Hz</span></span>${strengthBars(f.strength || 0)}</li>`;
+  }).join('')}</ul>`;
+}
+function enfFact(enf) {
+  if (!enf || enf.nominal == null) {
+    return `<div class="fact"><span class="fact-ic">${svgIc.bolt}</span><div class="fact-b">Pas de bourdonnement secteur détecté
+      <span class="s">Normal dehors ou loin d'appareils branchés : ça n'empêche pas la recherche.</span></div></div>`;
+  }
+  let extra = '';
+  if (typeof enf.europe_corr === 'number' && isFinite(enf.europe_corr)) {
+    extra = enf.europe_corr > 0.5
+      ? `<span class="badge ok" style="margin-top:6px">${svgIc.check} Réseau européen confirmé (corrélation ${enf.europe_corr.toFixed(2)})</span>`
+      : `<span class="s">Corrélation avec le réseau européen en direct : ${enf.europe_corr.toFixed(2)} (pas concluant)</span>`;
+  }
+  return `<div class="fact"><span class="fact-ic ok">${svgIc.bolt}</span><div class="fact-b">Réseau électrique <b>${enf.nominal} Hz</b> détecté
+    <span class="s">Zones possibles : ${esc(enf.regions || '?')}${enf.strength ? ` · ${(+enf.strength).toFixed(1)} dB` : ''}</span>${extra}</div></div>`;
+}
+function imgCard(src, cap) {
+  return `<div class="img-card"><img src="${src}" alt="${esc(cap)}" loading="lazy" onerror="this.closest('.img-card').remove()"><div class="img-cap">${esc(cap)}</div></div>`;
+}
+const TIP_IC = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
+function tipsList() {
+  return `<ul class="tips">${['Enregistre plus longtemps (5 à 15 min)', 'Dehors, pas derrière une vitre', 'Près d\'un aérodrome ou sous un couloir d\'aviation légère',
+    'En journée, quand les petits avions volent (week-end idéal)'].map(t => `<li>${TIP_IC}<span>${t}</span></li>`).join('')}</ul>`;
+}
+function noFlyoverCard(msg, sub) {
+  return `<div class="empty"><div class="empty-ic warn">${svgIc.mute}</div><h2>Aucun avion à hélice détecté</h2>
+    <p>${esc(sub || msg || 'On n\'entend aucun passage d\'avion exploitable dans cet enregistrement.')}</p>${tipsList()}</div>`;
+}
+function confBadge(res) {
+  const c = res.confidence;
+  if (c == null) return (res.top || []).length === 1 ? '<span class="badge">Un seul candidat</span>' : '';
+  const [cls, w] = c >= 2 ? ['ok', 'élevée'] : c >= 1.3 ? ['warn', 'moyenne'] : ['err', 'faible'];
+  return `<span class="badge ${cls}" title="rapport entre le meilleur et le 2e candidat">Confiance ${w} · ×${(+c).toFixed(2).replace('.', ',')}</span>`;
+}
+function resultHtml(res, opts = {}) {
+  const top = (res.top || []).slice(0, 5);
+  if (!top.length) return '';
+  const b = top[0];
+  const nEv = (res.events || []).length;
+  const meta = [`${nEv} passage${nEv > 1 ? 's' : ''} utilisé${nEv > 1 ? 's' : ''}`];
+  if (res.n_scored) meta.push(`${res.n_scored.toLocaleString('fr-FR')} points testés`);
+  if (res.elapsed_s) meta.push(`${Math.round(res.elapsed_s)} s`);
+  let h = `<div class="best">
+    <div class="best-k">${opts.live && opts.state !== 'done' ? 'Meilleure estimation pour l\'instant' : 'Position la plus probable'}</div>
+    <div class="best-c">${fmtCoord(b.lat, b.lon)}</div>
+    <div class="best-s">${b.rec_start_unix ? 'Début de l\'enregistrement ≈ ' + utcStr(b.rec_start_unix) : ''}</div>
+    <div class="badges">${confBadge(res)}<span class="badge">${esc(meta.join(' · '))}</span></div>
+    <div class="btn-row">
+      <a class="btn" href="${svUrl(b)}" target="_blank" rel="noopener">${svgIc.eye}Street View</a>
+      <a class="btn ghost" href="${mapsUrl(b)}" target="_blank" rel="noopener">${svgIc.arrow}Maps</a>
+      <button class="btn ghost" style="flex:0 0 46px;padding:0" data-copy="${b.lat.toFixed(6)}, ${b.lon.toFixed(6)}" aria-label="Copier">${svgIc.copy}</button>
+    </div></div>`;
+  if (top.length > 1 || !opts.compact) {
+    h += `<div class="section-t">Candidats</div>`;
+    h += top.map((t, i) => `<button class="cand ${i ? '' : 'first'}" data-cand="${i}"><span class="cand-r">${i + 1}</span>
+      <span class="cand-b"><b>${fmtCoord(t.lat, t.lon)}</b><span>${t.flights && t.flights.length ? 'avions ' + esc(t.flights.join(' → ')) : ''}</span></span>
+      <span class="cand-sc">${(+t.score).toFixed(2)}</span></button>`).join('');
+  }
+  return h;
+}
+document.addEventListener('click', e => {
+  const c = e.target.closest('[data-cand]');
+  if (c) { const i = +c.dataset.cand, t = mapState[mode].tops[i]; if (t) { if (!isDesk()) setSnap('peek'); focusPoint(t, i + 1); } return; }
+  const cp = e.target.closest('[data-copy]');
+  if (cp) {
+    const v = cp.dataset.copy;
+    (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).then(() => toast('Coordonnées copiées', 'ok'), () => toast(v));
+  }
 });
 
-function drawCircle() {
-  if (!center) return;
-  const r = +$('radius').value * 1000;
-  if (circle) circle.setLatLng(center).setRadius(r);
-  else circle = L.circle(center, { radius: r, color: '#ff7a45', weight: 2, fillOpacity: .08 }).addTo(map);
-  $('pickHint').textContent = `(${center.lat.toFixed(3)}, ${center.lng.toFixed(3)})`;
-  refresh();
-}
-map.on('click', e => { if (!$('form').classList.contains('hidden')) { center = e.latlng; drawCircle(); } });
-$('radius').oninput = () => { $('radiusVal').textContent = $('radius').value; drawCircle(); };
-
+/* ====================================================================== FILE mode */
 const drop = $('drop');
 drop.onclick = () => $('file').click();
 $('file').onchange = () => setFile($('file').files[0]);
@@ -149,108 +1010,637 @@ $('file').onchange = () => setFile($('file').files[0]);
 drop.addEventListener('drop', e => setFile(e.dataTransfer.files[0]));
 function setFile(f) {
   if (!f) return;
-  file = f; drop.classList.add('has');
-  drop.innerHTML = `${f.name}<br><small>${(f.size / 1e6).toFixed(1)} Mo</small>`;
-  refresh();
+  file.file = f; drop.classList.add('has');
+  $('dropT').textContent = f.name;
+  $('dropS').textContent = `${(f.size / 1e6).toFixed(1).replace('.', ',')} Mo · touche pour changer`;
+  refreshGo();
 }
-function refresh() {
-  const ok = center && file;
-  $('go').disabled = !ok;
-  $('go').textContent = ok ? 'Localiser' : (!center ? 'Touche la carte pour choisir la zone' : 'Ajoute un fichier');
+function updateFileZoneUI() {
+  const z = file.zone;
+  $('fZoneClear').hidden = !z; $('fZoneRadius').hidden = !z;
+  $('fZoneT').innerHTML = z ? `<b class="num">${fmtCoord(z.lat, z.lon)}</b><span>Cercle de ${z.r} km · touche ailleurs pour déplacer</span>`
+    : `<b>Partout</b><span>Touche la carte pour limiter à une zone</span>`;
+  refreshGo();
+}
+$('fZoneClear').onclick = () => { file.zone = null; updateFileZoneUI(); renderZone(); };
+$('fRad').oninput = () => { $('fRadV').textContent = $('fRad').value; if (file.zone) { file.zone.r = +$('fRad').value; renderZone(); updateFileZoneUI(); } };
+['date', 'time', 'tol', 'useMeta'].forEach(id => $(id).addEventListener('input', refreshGo));
+$('time').addEventListener('input', () => { if ($('time').value && !$('date').value) $('date').classList.add('bad'); else $('date').classList.remove('bad'); });
+$('date').addEventListener('input', () => $('date').classList.remove('bad'));
+$('adv').addEventListener('toggle', () => { if ($('adv').open && mode === 'file') showHint('Touche la carte pour placer la zone (optionnel)'); });
+function refreshGo() {
+  const ok = !!file.file;
+  $('goBtn').disabled = !ok; $('detectBtn').disabled = !ok;
+  $('goBtn').innerHTML = ok ? `${svgIc.search.replace('24" height="24', '19" height="19')}Localiser` : 'Choisis un fichier';
+  const h = $('timeHint'), d = $('date').value, t = $('time').value;
+  if (!d && !$('useMeta').checked) {
+    h.className = 'hint warn'; h.textContent = 'Sans date (ni heure de la vidéo), on ne pourra que détecter les avions, pas localiser.';
+  } else if (!d) {
+    h.className = 'hint'; h.textContent = 'On essaiera l\'heure inscrite dans la vidéo. Les applis de messagerie l\'effacent souvent : dans le doute, mets la date.';
+  } else if (!t) {
+    h.className = 'hint'; h.textContent = 'Avec seulement la date, on cherche sur toute la journée (plus long). L\'heure, même approximative, aide beaucoup.';
+  } else {
+    h.className = 'hint'; h.textContent = `Heure prise à ± ${$('tol').selectedOptions[0].text.replace('± ', '')} près (modifiable dans les options avancées).`;
+  }
+  const parts = [];
+  if (file.zone) parts.push(`zone ${file.zone.r} km`);
+  if (t) parts.push($('tol').selectedOptions[0].text.replace(/ /g, ' '));
+  if (!$('useMeta').checked) parts.push('sans métadonnées');
+  $('advSum').textContent = parts.join(' · ');
 }
 
-function headers() { return needPw ? { 'X-Password': $('pw').value } : {}; }
-
-$('go').onclick = () => {
-  if (needPw) store.set('pw', $('pw').value);
-  const fd = new FormData();
-  fd.append('file', file);
-  fd.append('lat', center.lat); fd.append('lon', center.lng);
-  fd.append('radius_km', $('radius').value);
-  if ($('start').value) fd.append('start', $('start').value + 'Z');
-  fd.append('start_tol_min', $('tol').value || 30);
-  fd.append('use_metadata', $('useMeta').checked);
-  show('progress'); $('pTitle').textContent = 'Envoi du fichier…'; $('log').textContent = '';
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', 'api/jobs');
-  Object.entries(headers()).forEach(([k, v]) => xhr.setRequestHeader(k, v));
-  xhr.upload.onprogress = e => { if (e.lengthComputable) $('barFill').style.width = (100 * e.loaded / e.total) + '%'; };
-  xhr.onload = () => {
-    if (xhr.status !== 200) { fail(JSON.parse(xhr.responseText || '{}').detail || ('Erreur ' + xhr.status)); return; }
-    const { job } = JSON.parse(xhr.responseText);
-    history.replaceState(null, '', '#' + job);
-    poll(job);
+let STEPS = [];
+function setStepsFor(kind) {
+  STEPS = kind === 'detect' ? [['Envoi du fichier', 0], ['Analyse audio', 1], ['Avions détectés', 4]]
+    : [['Envoi du fichier', 0], ['Analyse audio', 1], ['Données avions', 2], ['Recherche', 3], ['Résultat', 4]];
+}
+setStepsFor('locate');
+function stageIndex(stage) { return { upload: 0, queued: 1, audio: 1, audio_done: 2, adsb: 2, search: 3, done: 4, no_flyover: 4, detect_done: 4 }[stage] ?? 1; }
+function renderSteps(stage, opts = {}) {
+  const cur = stageIndex(stage);
+  const subs = {
+    0: opts.upload != null ? `${Math.round(opts.upload)} %` : '',
+    1: stage === 'queued' ? 'En file d\'attente…' : 'Recherche des passages d\'avions dans le son',
+    2: 'Trajectoires ADS-B à l\'heure de l\'enregistrement',
+    3: 'Comparaison des courbes Doppler, point par point',
+    4: '',
   };
-  xhr.onerror = () => fail('Envoi impossible');
+  const finished = ['done', 'detect_done', 'no_flyover'].includes(stage);
+  let act = STEPS.findIndex(([, si]) => si >= cur); if (act < 0) act = STEPS.length - 1;
+  $('steps').innerHTML = STEPS.map(([t, si], i) => {
+    let cls = finished || i < act ? 'done' : i === act ? 'active' : '';
+    if (opts.failed && cls === 'active') cls = 'fail';
+    const dot = cls === 'done' ? svgIc.check : cls === 'fail' ? svgIc.x : cls === 'active' ? '<span class="spinner"></span>' : `<span class="tiny">${i + 1}</span>`;
+    const sub = cls === 'active' || cls === 'fail' ? subs[si] : '';
+    const bar = si === 0 && cls === 'active' && opts.upload != null ? `<div class="pbar"><i style="width:${opts.upload}%"></i></div>` : '';
+    return `<li class="${cls}"><span class="st-dot">${dot}</span><div class="st-body"><div class="st-t">${t}</div>${sub ? `<div class="st-s">${esc(sub)}</div>` : ''}${bar}</div></li>`;
+  }).join('');
+}
+function audioCardHtml(audio, imgSrc) {
+  const fits = audio.fits || [];
+  let h = '<div class="card"><div class="card-title">Ce qu\'on entend</div>';
+  h += fits.length
+    ? `<div class="fact"><span class="fact-ic acc">${svgIc.plane}</span><div class="fact-b"><b>${fits.length} passage${fits.length > 1 ? 's' : ''} d'avion</b> détecté${fits.length > 1 ? 's' : ''}
+        <span class="s">${audio.duration ? 'sur ' + fmtTime(audio.duration) + ' d\'enregistrement' : ''}</span></div></div>${fitsList(fits)}<div style="height:10px"></div>`
+    : `<div class="fact"><span class="fact-ic warn">${svgIc.plane}</span><div class="fact-b"><b>Aucun passage d'avion</b><span class="s">${audio.duration ? 'sur ' + fmtTime(audio.duration) : ''}</span></div></div>`;
+  h += enfFact(audio.enf) + '</div>';
+  if (imgSrc) h += imgCard(imgSrc, 'Spectrogramme : courbes Doppler détectées');
+  return h;
+}
+const jobImg = (job, name) => `api/jobs/${job}/img/${name}?${pwq()}`;
+
+$('goBtn').onclick = () => submitJob('locate');
+$('detectBtn').onclick = () => submitJob('detect');
+async function submitJob(kind) {
+  if (!file.file) return;
+  await cfgReady;
+  if (cfg.password && !pw) { badPassword(); return; }
+  const d = $('date').value, t = $('time').value;
+  if (t && !d) { $('date').classList.add('bad'); toast('Indique aussi la date', 'err'); return; }
+  const fd = new FormData();
+  fd.append('file', file.file);
+  if (kind === 'detect') fd.append('mode', 'detect');
+  if (file.zone) { fd.append('lat', file.zone.lat); fd.append('lon', file.zone.lon); fd.append('radius_km', file.zone.r); }
+  if (d && t) { fd.append('start', `${d}T${t.length === 5 ? t + ':00' : t}Z`); fd.append('start_tol_min', $('tol').value || 30); }
+  else if (d) { fd.append('start', `${d}T12:00:00Z`); fd.append('start_tol_min', 720); }
+  else fd.append('start_tol_min', $('tol').value || 30);
+  fd.append('use_metadata', $('useMeta').checked ? 'true' : 'false');
+  file.kind = kind;
+  setStepsFor(kind);
+  file.result = null; mapState.file = { tops: [], heat: [] };
+  $('fAudio').innerHTML = ''; $('fError').innerHTML = ''; $('fLog').textContent = '';
+  showView('file-progress'); renderSteps('upload', { upload: 0 });
+  if (!isDesk()) setSnap('half');
+  const xhr = new XMLHttpRequest();
+  file.xhr = xhr;
+  xhr.open('POST', 'api/jobs');
+  Object.entries(hdrs()).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+  xhr.upload.onprogress = e => { if (e.lengthComputable) renderSteps('upload', { upload: 100 * e.loaded / e.total }); };
+  xhr.onload = () => {
+    file.xhr = null;
+    let body = {}; try { body = JSON.parse(xhr.responseText || '{}'); } catch {}
+    if (xhr.status !== 200) {
+      if (xhr.status === 401) badPassword();
+      const msg = xhr.status === 401 ? 'Mot de passe incorrect.' : xhr.status === 413 ? 'Fichier trop gros.' : (typeof body.detail === 'string' ? body.detail : `Erreur serveur (${xhr.status}).`);
+      return fileFail(msg, 'upload');
+    }
+    file.job = body.job;
+    history.replaceState(null, '', '#' + body.job);
+    pollJob(body.job, true);
+  };
+  xhr.onerror = () => { file.xhr = null; fileFail('Envoi impossible : vérifie ta connexion.', 'upload'); };
   xhr.send(fd);
+}
+function fileFail(msg, stage) {
+  renderSteps(stage || 'audio', { failed: true });
+  $('fError').innerHTML = `<div class="empty"><div class="empty-ic err">${svgIc.warn.replace(/17/g, '26')}</div><h2>Ça n'a pas marché</h2><p>${esc(msg)}</p></div>`;
+  if (!isDesk()) setSnap('half');
+}
+function resetFile() {
+  file.pollId++;
+  if (file.xhr) { try { file.xhr.abort(); } catch {} file.xhr = null; }
+  file.job = null; file.result = null; mapState.file = { tops: [], heat: [] };
+  if (location.hash && !location.hash.startsWith('#live-')) history.replaceState(null, '', location.pathname + location.search);
+  showView('file-form'); refreshGo();
+}
+$('fCancel').onclick = resetFile;
+$('fAgain').onclick = resetFile;
+
+async function pollJob(job, fresh) {
+  const id = ++file.pollId;
+  file.job = job;
+  if (!fresh) setStepsFor('locate');
+  if (mode !== 'file') setMode('file');
+  showView('file-progress'); renderSteps('queued');
+  let lastStage = '', errors = 0, audioShown = false;
+  while (id === file.pollId) {
+    let st;
+    try { st = await api('jobs/' + job); errors = 0; }
+    catch (e) {
+      if (e.status === 404) return fileFail('Analyse introuvable (lien expiré ou serveur redémarré).', lastStage || 'audio');
+      if (e.status === 401) return fileFail('Mot de passe incorrect : corrige-le puis recharge la page.', lastStage || 'audio');
+      if (++errors > 3) $('fError').innerHTML = `<div class="banner warn">${svgIc.warn}<span>Connexion instable, on réessaie…</span></div>`;
+      await sleep(3000); continue;
+    }
+    if (id !== file.pollId) return;
+    if (errors === 0 && $('fError').querySelector('.banner')) $('fError').innerHTML = '';
+    const log = (st.log || []).join('\n');
+    for (const el of [$('fLog'), $('fLog2')]) { el.textContent = log; el.scrollTop = 1e9; }
+    if (st.audio && !audioShown) {
+      audioShown = true;
+      $('fAudio').innerHTML = audioCardHtml(st.audio, jobImg(job, 'flyovers.png'));
+    }
+    if (st.state === 'error') return fileFail(st.error || 'Erreur inconnue', st.stage || lastStage);
+    if (st.state === 'done') return showFileResult(job, st);
+    if (st.stage !== lastStage) { lastStage = st.stage; if (st.mode === 'detect' && STEPS.length > 3) setStepsFor('detect'); renderSteps(st.stage); }
+    await sleep(2500);
+  }
+}
+function showFileResult(job, st) {
+  const res = st.result || { top: [] };
+  file.result = res;
+  const top = res.top || [];
+  const fits = (st.audio && st.audio.fits) || [];
+  mapState.file = { tops: top.slice(0, 5), heat: res.heat || [] };
+  showView('file-result');
+  let h = '', audioBelow = true;
+  if (st.stage === 'detect_done' && fits.length) {
+    audioBelow = false;
+    const n = fits.length;
+    h = `<div class="best"><div class="best-k">Détection seule</div>
+      <div class="best-c">${n} avion${n > 1 ? 's' : ''} détecté${n > 1 ? 's' : ''}</div>
+      <div class="best-s">${st.audio.duration ? 'sur ' + fmtTime(st.audio.duration) + ' d\'enregistrement' : ''}</div>
+      ${fitsList(fits)}
+      <div class="btn-row" style="margin-top:12px"><button class="btn" id="locateNow">${svgIc.search.replace('24" height="24', '18" height="18')}Localiser maintenant</button></div>
+      ${file.file ? '' : '<div class="hint">Il faudra ré-ajouter le fichier (la page a été rechargée).</div>'}</div>
+      <div class="card">${enfFact(st.audio.enf)}</div>
+      ${imgCard(jobImg(job, 'flyovers.png'), 'Spectrogramme : courbes Doppler détectées')}`;
+  } else if (!top.length) {
+    if (st.stage === 'no_flyover' || st.stage === 'detect_done' || !fits.length)
+      h = noFlyoverCard(res.message, 'On n\'entend aucun passage d\'avion à hélice exploitable dans cet enregistrement.');
+    else h = `<div class="empty"><div class="empty-ic warn">${svgIc.search}</div><h2>Pas de position trouvée</h2><p>${esc(res.message || 'Aucune trajectoire ne colle aux avions entendus.')}</p>${tipsList()}</div>`;
+  } else {
+    h = resultHtml(res) + imgCard(jobImg(job, 'match_1.png'), 'Meilleur candidat : courbes ADS-B prédites sur le son');
+  }
+  $('fAudio2').innerHTML = audioBelow && st.audio ? audioCardHtml(st.audio, jobImg(job, 'flyovers.png')) : '';
+  $('fResult').innerHTML = h;
+  const ln = $('locateNow'); if (ln) ln.onclick = () => { if (file.file) submitJob('locate'); else { resetFile(); $('file').click(); } };
+  if (!isDesk()) setSnap('half');
+  if (top.length) { fitResult(res, false); setTimeout(() => openTopPopup(top[0], 1), 1700); }
+}
+
+/* ====================================================================== LIVE mode */
+function updateLiveZoneUI() {
+  const z = live.zone;
+  $('lZoneT').innerHTML = z.named ? `<b>France</b><span>Cercle de ${z.r} km · touche la carte pour déplacer</span>`
+    : `<b class="num">${fmtCoord(z.lat, z.lon)}</b><span>Cercle de ${z.r} km · touche la carte pour déplacer</span>`;
+}
+$('lRad').oninput = () => { live.zone.r = +$('lRad').value; $('lRadV').textContent = live.zone.r; updateLiveZoneUI(); renderZone(); };
+
+const WORKLET = `class Tap extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = new Float32Array(2048); this.n = 0; }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (ch) for (let i = 0; i < ch.length; i++) {
+      this.buf[this.n++] = ch[i];
+      if (this.n === this.buf.length) { this.port.postMessage(this.buf, [this.buf.buffer]); this.buf = new Float32Array(2048); this.n = 0; }
+    }
+    return true;
+  }
+}
+registerProcessor('tap', Tap);`;
+
+function makeResampler(inRate) {
+  const ratio = inRate / 1000;
+  let sum = 0, n = 0, pos = 0;
+  return function (x) {
+    const out = new Int16Array(Math.ceil(x.length / ratio) + 2);
+    let k = 0;
+    for (let i = 0; i < x.length; i++) {
+      sum += x[i]; n++; pos += 1;
+      if (pos >= ratio) {
+        let v = sum / n; v = v < -1 ? -1 : v > 1 ? 1 : v;
+        out[k++] = v < 0 ? Math.round(v * 32768) : Math.round(v * 32767);
+        pos -= ratio; sum = 0; n = 0;
+      }
+    }
+    return out.subarray(0, k);
+  };
+}
+
+const L_ = { // live runtime
+  ctx: null, stream: null, node: null, src: null, sink: null, resample: null,
+  firstMs: 0, pending: [], inflight: false, failures: 0, uploaded: 0,
+  timers: [], level: 0, peak: 0, wake: null, stopping: false, hiddenAt: 0, wasHidden: false,
+  creating: false, raf: 0, seenFits: new Set(), resultKey: '', serverState: '', lastStatus: null, prevPos: new Map(),
 };
 
-function show(id) { ['form', 'progress', 'results'].forEach(s => $(s).classList.toggle('hidden', s !== id)); }
-function fail(msg) { $('pTitle').innerHTML = `<span class="err">Échec</span>`; $('log').textContent += '\n' + msg;
-  $('flyImg').insertAdjacentHTML('beforeend', '<button class="ghost" onclick="reset()">Réessayer</button>'); }
+function liveErr(msg) { $('lSetupErr').innerHTML = `<div class="banner err">${svgIc.warn}<span>${msg}</span></div>`; }
 
-function img(job, name) { return `api/jobs/${job}/img/${name}?pw=${encodeURIComponent(needPw ? $('pw').value : '')}`; }
-
-async function poll(job) {
-  show('progress');
-  $('pTitle').textContent = 'Analyse en cours…';
-  let shownFly = false;
-  while (true) {
-    let st;
-    try {
-      const r = await fetch('api/jobs/' + job, { headers: headers() });
-      if (!r.ok) { fail(r.status === 404 ? 'Analyse introuvable' : 'Erreur ' + r.status); return; }
-      st = await r.json();
-    } catch { await new Promise(r => setTimeout(r, 3000)); continue; }
-    $('log').textContent = st.log.join('\n');
-    $('log').scrollTop = 1e9;
-    const steps = ['uploaded', 'ADS-B', 'decoding', 'detecting', 'coarse', 'fine', 'done'];
-    const last = st.log.join(' ');
-    const k = steps.reduce((a, s, i) => last.includes(s) ? i : a, 0);
-    $('barFill').style.width = (15 + 85 * k / (steps.length - 1)) + '%';
-    if (!shownFly && last.includes('coarse search')) {
-      shownFly = true;
-      $('flyImg').innerHTML = `<img src="${img(job, 'flyovers.png')}" alt="avions détectés">`;
+$('lStart').onclick = startLive;
+async function startLive() {
+  $('lSetupErr').innerHTML = '';
+  await cfgReady;
+  if (cfg.password && !pw) { badPassword(); return; }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!window.isSecureContext) return liveErr('Le micro n\'est disponible qu\'en <b>HTTPS</b>. Ouvre l\'appli via son adresse https://.');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !AC)
+    return liveErr('Ce navigateur ne permet pas d\'enregistrer. Sur iPhone, utilise <b>Safari</b> à jour.');
+  const btn = $('lStart'); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Accès au micro…';
+  let ctx;
+  try { ctx = new AC(); ctx.resume().catch(() => {}); } catch { ctx = null; }
+  try {
+    L_.stream = await navigator.mediaDevices.getUserMedia({ audio: {
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }, video: false });
+  } catch (e) {
+    if (ctx) ctx.close().catch(() => {});
+    resetStartBtn();
+    const n = e && e.name;
+    if (n === 'NotAllowedError' || n === 'SecurityError')
+      return liveErr('<b>Accès au micro refusé.</b> Sur iPhone : touche « aA » dans la barre d\'adresse → Réglages du site web → Micro → Autoriser, puis recharge la page.');
+    if (n === 'NotFoundError' || n === 'OverconstrainedError') return liveErr('Aucun micro trouvé sur cet appareil.');
+    if (n === 'NotReadableError') return liveErr('Le micro est déjà utilisé par une autre appli (appel, dictaphone…).');
+    return liveErr('Impossible d\'ouvrir le micro : ' + esc(e && e.message || n || 'erreur inconnue'));
+  }
+  try {
+    if (!ctx) ctx = new AC();
+    L_.ctx = ctx;
+    await ctx.resume();
+    L_.src = ctx.createMediaStreamSource(L_.stream);
+    L_.resample = makeResampler(ctx.sampleRate);
+    L_.sink = ctx.createGain(); L_.sink.gain.value = 0; L_.sink.connect(ctx.destination);
+    let node = null;
+    if (ctx.audioWorklet && window.AudioWorkletNode) {
+      try {
+        const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
+        await ctx.audioWorklet.addModule(url);
+        URL.revokeObjectURL(url);
+        node = new AudioWorkletNode(ctx, 'tap', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1, channelCountMode: 'explicit' });
+        node.port.onmessage = e => onSamples(e.data);
+      } catch (e) { console.warn('worklet failed, fallback', e); node = null; }
     }
-    if (st.state === 'done') return showResults(job, st.result);
-    if (st.state === 'error') return fail(st.error);
-    await new Promise(r => setTimeout(r, 2500));
+    if (!node) {
+      node = ctx.createScriptProcessor(4096, 1, 1);
+      node.onaudioprocess = e => onSamples(new Float32Array(e.inputBuffer.getChannelData(0)));
+    }
+    L_.node = node;
+    L_.src.connect(node); node.connect(L_.sink);
+  } catch (e) {
+    stopCapture(); resetStartBtn();
+    return liveErr('Impossible de démarrer l\'audio : ' + esc(e.message || e));
   }
-}
-
-function showResults(job, res) {
-  show('results');
-  if (innerWidth < 900) $('sheet').style.maxHeight = '45vh';
-  layers.forEach(l => map.removeLayer(l)); layers = [];
-  const top = res.top || [];
-  const conf = res.confidence ? ` · confiance ×${res.confidence}` : '';
-  $('rSub').textContent = `${res.events.length} passage(s) d'avion utilisé(s) · ${res.n_scored} points testés · ${res.elapsed_s}s${conf}`;
-  if (res.heat && res.heat.length && L.heatLayer) {
-    const h = L.heatLayer(res.heat, { radius: 14, blur: 16, maxZoom: 15 }).addTo(map); layers.push(h);
-  }
-  $('rList').innerHTML = '';
-  top.slice(0, 5).forEach((t, i) => {
-    const m = L.circleMarker([t.lat, t.lon], { radius: i ? 6 : 10, color: i ? '#8b949e' : '#ff7a45',
-      fillOpacity: i ? .5 : .9, weight: 2 }).addTo(map);
-    const when = new Date(t.rec_start_unix * 1000).toISOString().replace('T', ' ').slice(0, 19);
-    const html = `<b>#${t.rank}</b> ${t.lat.toFixed(5)}, ${t.lon.toFixed(5)}
-      <small>score ${t.score.toFixed(2)} · avions ${t.flights.join(' → ')}</small>
-      <small>début de l'enregistrement ≈ ${when} UTC</small>`;
-    m.bindPopup(html + `<br><a target="_blank" href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${t.lat},${t.lon}">Street View</a>`);
-    layers.push(m);
-    const div = document.createElement('div');
-    div.className = 'res'; div.innerHTML = html;
-    div.onclick = () => { map.setView([t.lat, t.lon], 16); m.openPopup(); };
-    $('rList').appendChild(div);
+  L_.stream.getAudioTracks().forEach(t => {
+    t.onended = () => { if (!L_.stopping) banner('mic', 'err', '<b>Le micro s\'est coupé.</b> L\'enregistrement est arrêté ; ce qui a été envoyé est analysé.'), stopLive(); };
+    t.onmute = () => { if (!L_.stopping) banner('mute', 'warn', '<b>Micro en pause</b> (écran verrouillé, appel ou autre appli). Reviens sur cette page.'); };
+    t.onunmute = () => banner('mute', null);
   });
-  if (top.length) map.setView([top[0].lat, top[0].lon], 14);
-  $('rImgs').innerHTML = ['match_1.png', 'flyovers.png'].map(n => `<img src="${img(job, n)}" alt="">`).join('');
+  Object.assign(L_, { firstMs: 0, pending: [], inflight: false, failures: 0, uploaded: 0, stopping: false, creating: false,
+    seenFits: new Set(), resultKey: '', serverState: '', lastStatus: null, prevPos: new Map(), wasHidden: false });
+  live.sid = null; live.result = null; live.lastZoom = map.getZoom(); mapState.live = { tops: [], heat: [], aircraft: [] };
+  requestWake();
+  resetStartBtn();
+  enterRecView();
+}
+function resetStartBtn() {
+  const b = $('lStart'); b.disabled = false;
+  b.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="7"/></svg>Démarrer l\'enregistrement';
+}
+function enterRecView() {
+  showView('live-rec');
+  $('lBanners').innerHTML = ''; $('lResult').innerHTML = ''; $('lImg').innerHTML = ''; $('lLog').textContent = '';
+  $('lState').className = 'rec-state'; $('lState').innerHTML = '<span class="rec-dot"></span>Connexion…';
+  $('lMeterWrap').hidden = false;
+  $('sAc').textContent = '–'; $('sProp').textContent = '–'; $('sHeard').textContent = '0';
+  renderLiveFits([], null); renderLiveEnf({});
+  $('lActions').innerHTML = `<button class="btn stop" id="lStop"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="3"/></svg>Arrêter et analyser</button>`;
+  $('lStop').onclick = stopLive;
+  $('segRecDot').hidden = false; $('segMicIc').style.display = 'none';
+  banner('hint', 'info', 'Garde <b>l\'écran allumé</b> et cette page ouverte. Pose le téléphone dehors, micro dégagé, et ne parle pas trop près.');
+  if (!isDesk()) setSnap('half');
+  cancelAnimationFrame(L_.raf); L_.raf = requestAnimationFrame(tick);
+}
+function onSamples(f32) {
+  if (L_.stopping || !L_.resample) return;
+  if (!L_.firstMs) {
+    L_.firstMs = Date.now() - (f32.length / L_.ctx.sampleRate) * 1000;
+    createSession();
+  }
+  let s = 0, p = 0;
+  for (let i = 0; i < f32.length; i++) { const v = f32[i]; s += v * v; const a = v < 0 ? -v : v; if (a > p) p = a; }
+  const db = 20 * Math.log10(Math.sqrt(s / f32.length) + 1e-9);
+  L_.level = Math.max(L_.level * 0.85, Math.min(1, Math.max(0, (db + 72) / 66)));
+  L_.peak = Math.max(L_.peak, p);
+  const out = L_.resample(f32);
+  if (out.length) L_.pending.push(out);
+}
+async function createSession() {
+  if (L_.creating || live.sid) return;
+  L_.creating = true;
+  const z = live.zone;
+  for (let attempt = 0; attempt < 4 && !L_.stopping; attempt++) {
+    try {
+      const r = await api('live', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: z.lat, lon: z.lon, radius_km: z.r, client_now_ms: Date.now(), audio_start_ms: L_.firstMs }) });
+      live.sid = r.session;
+      history.replaceState(null, '', '#live-' + r.session);
+      $('lState').innerHTML = '<span class="rec-dot"></span>Enregistrement';
+      L_.timers.push(setInterval(upload, 3000), setInterval(pollLive, 2500));
+      setTimeout(pollLive, 800);
+      L_.creating = false;
+      return;
+    } catch (e) {
+      if (e.status && e.status < 500 && e.status !== 429) { abortLive(e.message); return; }
+      if (e.status === 429) { abortLive('Trop d\'enregistrements en cours sur le serveur, réessaie dans quelques minutes.'); return; }
+      await sleep(1500 * (attempt + 1));
+    }
+  }
+  if (!live.sid) abortLive('Impossible de joindre le serveur pour démarrer la session.');
+}
+function abortLive(msg) {
+  L_.stopping = true; stopCapture(); clearTimers(); releaseWake();
+  $('segRecDot').hidden = true; $('segMicIc').style.display = '';
+  showView('live-setup'); liveErr(esc(msg)); L_.creating = false;
+}
+function concatPending(parts) {
+  let n = 0; for (const p of parts) n += p.length;
+  const out = new Int16Array(n); let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+async function upload() {
+  if (L_.inflight || !live.sid || !L_.pending.length) return true;
+  L_.inflight = true;
+  const parts = L_.pending.slice(0, 400);
+  const pcm = concatPending(parts);
+  try {
+    const r = await fetch(`api/live/${live.sid}/audio`, { method: 'POST', headers: hdrs({ 'Content-Type': 'application/octet-stream' }), body: pcm.buffer });
+    if (r.status === 401) { badPassword(); throw new Error('401'); }
+    if (r.status === 404) { L_.pending = []; banner('net', 'err', '<b>Session perdue côté serveur</b> (redémarrage ?). Relance un enregistrement.'); L_.inflight = false; return true; }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json().catch(() => ({}));
+    L_.pending.splice(0, parts.length);
+    L_.uploaded += pcm.length;
+    if (L_.failures) banner('net', null);
+    L_.failures = 0;
+    if (j.state && j.state !== 'recording' && !L_.stopping) {
+      banner('net', 'warn', '<b>Le serveur a clôturé l\'enregistrement</b> (pause trop longue ou durée max de 45 min). Analyse finale en cours.');
+      stopLive();
+    }
+    return true;
+  } catch (e) {
+    L_.failures++;
+    const backlog = L_.pending.reduce((a, p) => a + p.length, 0) / 1000;
+    if (L_.failures >= 2) banner('net', 'warn', `<b>Réseau instable</b> : ${Math.round(backlog)} s d'audio en attente, rien n'est perdu, on renvoie dès que ça repasse.`);
+    return false;
+  } finally { L_.inflight = false; }
+}
+function clearTimers() { L_.timers.forEach(clearInterval); L_.timers = []; }
+function stopCapture() {
+  try { L_.node && (L_.node.port ? L_.node.port.onmessage = null : L_.node.onaudioprocess = null); } catch {}
+  try { L_.src && L_.src.disconnect(); } catch {}
+  try { L_.node && L_.node.disconnect(); } catch {}
+  try { L_.stream && L_.stream.getTracks().forEach(t => { t.onended = t.onmute = t.onunmute = null; t.stop(); }); } catch {}
+  try { L_.ctx && L_.ctx.close(); } catch {}
+  L_.node = L_.src = L_.stream = L_.ctx = null; L_.resample = null;
+}
+async function stopLive() {
+  if (L_.stopping && live.sid && L_.serverState !== 'recording') return;
+  L_.stopping = true;
+  stopCapture();
+  $('lMeterWrap').hidden = true;
+  $('lState').className = 'rec-state idle'; $('lState').innerHTML = '<span class="spinner" style="width:12px;height:12px;border-width:2px"></span>Envoi de la fin de l\'audio…';
+  $('lActions').innerHTML = `<button class="btn ghost" disabled><span class="spinner"></span>Analyse finale…</button>`;
+  $('segRecDot').hidden = true; $('segMicIc').style.display = '';
+  banner('hint', null); banner('mute', null); banner('bg', null);
+  if (!live.sid) { // session never got created
+    for (let i = 0; i < 10 && L_.creating; i++) await sleep(500);
+    if (!live.sid) { clearTimers(); releaseWake(); showView('live-setup'); return; }
+  }
+  for (let i = 0; i < 25 && L_.pending.length; i++) { const ok = await upload(); if (!ok) await sleep(1500); }
+  try { await api(`live/${live.sid}/stop`, { method: 'POST' }); } catch (e) { if (e.status !== 404) toast('Arrêt : ' + e.message, 'err'); }
+  $('lState').innerHTML = '<span class="spinner" style="width:12px;height:12px;border-width:2px"></span>Analyse finale…';
+  releaseWake();
+  pollLive();
+}
+let polling = false;
+async function pollLive() {
+  if (polling || !live.sid) return;
+  polling = true;
+  try {
+    const st = await api('live/' + live.sid);
+    L_.lastStatus = st; L_.serverState = st.state;
+    renderLiveStatus(st);
+    if (st.state === 'done') { clearTimers(); finishLive(st); }
+    else if (L_.stopping && !L_.timers.length) setTimeout(pollLive, 2500);
+  } catch (e) {
+    if (e.status === 404) { clearTimers(); banner('net', 'err', '<b>Session introuvable</b> : le serveur a peut-être redémarré.'); liveDoneActions(); }
+    else if (L_.stopping && !L_.timers.length) setTimeout(pollLive, 3000);
+  } finally { polling = false; }
+}
+function tick() {
+  if (live.view !== 'live-rec') return;
+  if (!L_.stopping) {
+    const el = L_.firstMs ? (Date.now() - L_.firstMs) / 1000 : 0;
+    $('lTimer').textContent = fmtTime(el);
+    $('lMeter').style.width = (L_.level * 100).toFixed(1) + '%';
+    L_.level *= 0.96;
+    const sent = L_.uploaded / 1000;
+    $('lUp').textContent = live.sid ? `envoyé ${fmtTime(sent)}` : '';
+    if (L_.ctx && L_.ctx.state !== 'running' && !document.hidden) L_.ctx.resume().catch(() => {});
+  }
+  L_.raf = requestAnimationFrame(tick);
+}
+function banner(key, kind, html) {
+  let el = document.getElementById('bn-' + key);
+  if (!kind) { if (el) el.remove(); return; }
+  if (!el) { el = document.createElement('div'); el.id = 'bn-' + key; $('lBanners').appendChild(el); }
+  el.className = 'banner ' + kind;
+  el.innerHTML = (kind === 'info' ? svgIc.pin : svgIc.warn) + `<span>${html}</span>`;
+}
+function bearing(a, b) {
+  const la1 = a[1] * Math.PI / 180, la2 = b[1] * Math.PI / 180, dl = (b[0] - a[0]) * Math.PI / 180;
+  const y = Math.sin(dl) * Math.cos(la2), x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dl);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+function renderLiveStatus(st) {
+  if (st.state !== 'recording') {
+    $('lTimer').textContent = fmtTime(st.duration);
+  }
+  // aircraft
+  const ac = st.aircraft || [];
+  const feats = ac.map(a => {
+    const pos = [a.lon, a.lat];
+    const prev = L_.prevPos.get(a.hex);
+    let brg = prev ? prev.brg : 0;
+    if (prev && (Math.abs(prev.pos[0] - pos[0]) + Math.abs(prev.pos[1] - pos[1])) > 1e-4) brg = bearing(prev.pos, pos);
+    L_.prevPos.set(a.hex, { pos, brg });
+    return { type: 'Feature', geometry: { type: 'Point', coordinates: pos },
+      properties: { hex: a.hex, prop: !!a.prop, type: a.type || '', alt: a.alt_m, brg, label: `${a.type || '?'} · ${a.alt_m} m` } };
+  });
+  mapState.live.aircraft = st.state === 'done' ? [] : feats;
+  $('sAc').textContent = ac.length;
+  $('sProp').textContent = ac.filter(a => a.prop).length;
+  $('sHeard').textContent = (st.fits || []).length;
+  // fits
+  renderLiveFits(st.fits || [], st);
+  renderLiveEnf(st.enf || {});
+  if ((st.fits || []).length) {
+    const src = `api/live/${live.sid}/img/flyovers.png?${pwq()}&n=${st.fits.length}`;
+    const img = $('lImg').querySelector('img');
+    if (!img) $('lImg').innerHTML = imgCard(src, 'Spectrogramme : courbes Doppler détectées');
+    else if (img.getAttribute('src') !== src) img.src = src;
+  }
+  // result & progressive zoom
+  const res = st.result;
+  if (res && (res.top || []).length) {
+    const key = JSON.stringify([(res.top || []).slice(0, 3).map(t => [t.lat, t.lon]), (res.events || []).length]);
+    live.result = res;
+    mapState.live.tops = res.top.slice(0, 5); mapState.live.heat = res.heat || [];
+    $('lResult').innerHTML = resultHtml(res, { live: true, compact: true, state: st.state });
+    if (key !== L_.resultKey) {
+      const first = !L_.resultKey;
+      L_.resultKey = key;
+      if (mode === 'live') { fitResult(res, true); toast(first ? 'Première zone candidate trouvée' : 'La zone se resserre', 'ok'); }
+    }
+  } else if (st.error) {
+    $('lResult').innerHTML = `<div class="banner err">${svgIc.warn}<span>${esc(st.error)}</span></div>`;
+  }
+  // log
+  $('lLog').textContent = [`avions vus : ${st.aircraft_seen ?? 0} (typés : ${st.typed_aircraft ?? 0}) · fréquence réseau : ${st.grid_samples ?? 0} mesures`, ...(st.log || [])].join('\n');
+  if (mode === 'live') renderMap();
+}
+function renderLiveFits(fits, st) {
+  if (!fits.length) {
+    const dur = st ? st.duration : 0;
+    const sub = !st ? 'Démarrage…' : dur < 40 ? `Première analyse après 40 s (${fmtTime(dur)} reçues)` : `Analyse toutes les ~15 s · ${fmtTime(dur)} écoutées`;
+    $('lFits').innerHTML = `<div class="waiting"><span class="radar"></span><div><b style="color:var(--text);font-weight:600">Aucun avion entendu pour l'instant</b><div class="tiny">${sub}</div></div></div>
+      <div class="hint">Il faut au moins un avion à hélice qui passe à moins de ~3 km. Les jets ne servent pas.</div>`;
+    return;
+  }
+  const newSet = new Set();
+  fits.forEach(f => { const k = Math.round(f.tc) + ':' + Math.round(f.f0); if (!L_.seenFits.has(k)) { newSet.add(k); L_.seenFits.add(k); } });
+  if (newSet.size && L_.seenFits.size > newSet.size || (newSet.size && fits.length === newSet.size && st && st.state === 'recording')) {
+    if (navigator.vibrate) try { navigator.vibrate(60); } catch {}
+  }
+  $('lFits').innerHTML = fitsList(fits, st && st.t0, newSet) +
+    (st && st.state !== 'done' && !(st.result && st.result.top && st.result.top.length) ? `<div class="hint">Recherche des trajectoires qui collent… ça peut prendre un peu de temps.</div>` : '');
+}
+function renderLiveEnf(enf) {
+  if (enf.nominal === undefined) {
+    $('lEnf').innerHTML = `<div class="fact"><span class="fact-ic">${svgIc.bolt}</span><div class="fact-b">Bourdonnement secteur<span class="s">Analyse en attente…</span></div></div>`;
+  } else $('lEnf').innerHTML = enfFact(enf);
+}
+function finishLive(st) {
+  if (live.view !== 'live-rec') return;
+  $('body').scrollTop = 0;
+  $('lState').className = 'rec-state idle';
+  $('lState').innerHTML = `${svgIc.check}Terminé · ${fmtTime(st.duration)} analysées`;
+  $('lMeterWrap').hidden = true;
+  cancelAnimationFrame(L_.raf);
+  const res = st.result;
+  if (!res || !(res.top || []).length) {
+    $('lResult').innerHTML = (st.fits || []).length
+      ? `<div class="empty"><div class="empty-ic warn">${svgIc.search}</div><h2>Pas de position trouvée</h2><p>Des avions ont été entendus, mais aucune trajectoire ADS-B ne colle. Souvent : avion non équipé d'ADS-B, ou trop loin.</p>${tipsList()}</div>`
+      : noFlyoverCard(null, `Rien d'exploitable sur ${fmtTime(st.duration)} d'écoute.`);
+  } else {
+    $('lResult').innerHTML = resultHtml(res, { live: true, state: 'done' });
+    if (mode === 'live') fitResult(res, true);
+  }
+  mapState.live.aircraft = [];
+  if (mode === 'live') renderMap();
+  liveDoneActions();
+  if (!isDesk()) setSnap('half');
+}
+function liveDoneActions() {
+  $('lActions').innerHTML = `<button class="btn ghost" id="lAgain">Nouvel enregistrement</button>`;
+  $('lAgain').onclick = () => {
+    live.sid = null; live.result = null; mapState.live = { tops: [], heat: [], aircraft: [] };
+    if (location.hash.startsWith('#live-')) history.replaceState(null, '', location.pathname + location.search);
+    showView('live-setup'); setMode('live');
+  };
+}
+/* wake lock & background */
+async function requestWake() {
+  try { if ('wakeLock' in navigator) { L_.wake = await navigator.wakeLock.request('screen'); L_.wake.addEventListener('release', () => { L_.wake = null; }); } } catch {}
+}
+function releaseWake() { try { L_.wake && L_.wake.release(); } catch {} L_.wake = null; }
+document.addEventListener('visibilitychange', () => {
+  const recording = live.view === 'live-rec' && !L_.stopping && L_.stream;
+  if (!recording) return;
+  if (document.hidden) { L_.hiddenAt = Date.now(); }
+  else {
+    const away = L_.hiddenAt ? (Date.now() - L_.hiddenAt) / 1000 : 0;
+    banner('bg', 'warn', `<b>La page est passée en arrière-plan${away > 2 ? ` (${fmtTime(away)})` : ''}.</b> iOS met le micro en pause quand l'écran se verrouille : garde l'écran allumé et l'appli au premier plan.`);
+    if (!L_.wake) requestWake();
+    if (L_.ctx && L_.ctx.state !== 'running') L_.ctx.resume().catch(() => {});
+    if (mode !== 'live') setMode('live');
+  }
+});
+addEventListener('pagehide', () => { if (live.sid && !L_.stopping && L_.stream) navigator.sendBeacon && upload(); });
+addEventListener('beforeunload', e => { if (live.view === 'live-rec' && L_.stream && !L_.stopping) { e.preventDefault(); e.returnValue = ''; } });
+
+/* resume a live session by URL (no mic: just show it) */
+async function resumeLive(sid) {
+  setMode('live'); live.sid = sid; L_.stopping = true;
+  showView('live-rec');
+  $('lMeterWrap').hidden = true; $('lBanners').innerHTML = '';
+  $('lState').className = 'rec-state idle'; $('lState').innerHTML = '<span class="spinner" style="width:12px;height:12px;border-width:2px"></span>Chargement…';
+  renderLiveFits([], null); renderLiveEnf({});
+  $('lActions').innerHTML = '';
+  try {
+    const st = await api('live/' + sid);
+    renderLiveStatus(st);
+    if (st.state === 'done') return finishLive(st);
+    banner('bg', 'warn', '<b>L\'enregistrement a été interrompu</b> (page rechargée). Tu peux lancer l\'analyse finale de ce qui a été reçu.');
+    $('lState').innerHTML = `Interrompu · ${fmtTime(st.duration)} reçues`;
+    $('lActions').innerHTML = `<button class="btn" id="lFinal">Analyser ce qui a été reçu</button><button class="btn ghost" id="lDrop">Nouvel enregistrement</button>`;
+    $('lFinal').onclick = async () => {
+      $('lActions').innerHTML = `<button class="btn ghost" disabled><span class="spinner"></span>Analyse finale…</button>`;
+      try { await api(`live/${sid}/stop`, { method: 'POST' }); } catch {}
+      L_.serverState = 'finishing'; pollLive();
+    };
+    $('lDrop').onclick = () => { history.replaceState(null, '', location.pathname); live.sid = null; showView('live-setup'); };
+  } catch (e) {
+    $('lState').innerHTML = 'Session introuvable';
+    banner('net', 'err', e.status === 404 ? 'Cette session n\'existe plus (serveur redémarré ou expirée).' : esc(e.message));
+    liveDoneActions();
+  }
 }
 
-function reset() { history.replaceState(null, '', location.pathname); show('form'); $('sheet').style.maxHeight = '';
-  $('barFill').style.width = 0; $('flyImg').innerHTML = ''; refresh(); }
-$('again').onclick = reset;
-if (location.hash.length > 1) poll(location.hash.slice(1));
+/* ====================================================================== boot */
+updateFileZoneUI(); updateLiveZoneUI(); refreshGo();
+requestAnimationFrame(() => {
+  setSnap('half');
+  if (!location.hash) map.fitBounds([[-5.2, 42.2], [8.4, 51.2]], { padding: mapPadding(), duration: 0 });
+});
+async function routeHash() {
+  await cfgReady;
+  const h = decodeURIComponent(location.hash.slice(1));
+  if (h.startsWith('live-') && /^[a-z0-9]+$/i.test(h.slice(5))) { if (live.sid !== h.slice(5)) resumeLive(h.slice(5)); }
+  else if (/^[a-z0-9]+$/i.test(h) && h !== file.job) pollJob(h);
+}
+routeHash();
+addEventListener('hashchange', routeHash);
 </script>
 </body>
 </html>

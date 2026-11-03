@@ -1,45 +1,69 @@
-"""End-to-end run: audio -> events -> coarse search -> fine scoring -> results."""
+"""End-to-end run: audio -> events -> coarse search -> fine scoring -> results.
+
+Split in two so callers can check the audio (cheap) before fetching ADS-B data
+(expensive): `analyze_audio` then `locate`.
+"""
 
 import json
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 from .adsb import build_segments
-from .audio import load_audio, plot_spectrogram, spectrogram
+from .audio import Spectrogram, load_audio, plot_spectrogram, spectrogram
 from .detect import detect_flyovers, events_for_search
+from .enf import analyze_enf
 from .physics import straight_flyover
 from .search import Event, SearchParams, best_per_combination, coarse_search, fine_search, model_curve
 
+SPEC = {"fmin": 40.0, "fmax": 400.0, "win_s": 1.0, "hop_s": 0.1}
+SR = 1000
 
-def run(audio_path, adsb_df, area, dem, out_dir, events=None, params=None, spec_cfg=None,
-        log=print, plots=True):
+
+@dataclass
+class AudioAnalysis:
+    spec: Spectrogram
+    fits: list
+    events: list
+    enf: dict
+
+
+def analyze_audio(source, out_dir=None, p=None, log=print, plots=True, sr=SR):
+    """source: a media path or a (samples, sample_rate) tuple."""
+    p = p or SearchParams()
+    if isinstance(source, tuple):
+        x, sr = source
+    else:
+        log("decoding audio")
+        x, sr = load_audio(source, sr=sr)
+    spec = spectrogram(x, sr, SPEC["fmin"], SPEC["fmax"], SPEC["win_s"], SPEC["hop_s"])
+    log(f"  {spec.duration:.0f}s of audio")
+    enf = analyze_enf(x, sr)
+    if enf["nominal"]:
+        log(f"  mains hum: {enf['nominal']} Hz grid (strength {enf['strength']:.1f})")
+    log("detecting flyovers")
+    fits = detect_flyovers(spec, p.c, log=log)
+    events = events_for_search(fits) if fits else []
+    if plots and out_dir is not None:
+        out = Path(out_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        curves = []
+        for f in fits:
+            ft = np.linspace(f["window"][0], f["window"][1], 400)
+            curves.append((ft, straight_flyover(ft, f["f0"], f["v"], f["d"], f["tc"], p.c),
+                           f"{f['tc']:.0f}s  ~{f['v']:.0f} m/s  ~{f['d']:.0f} m"))
+        plot_spectrogram(spec, out / "flyovers.png", fmin=40, fmax=300, curves=curves,
+                         title=f"{len(fits)} flyover(s) detected")
+    return AudioAnalysis(spec, fits, events, enf)
+
+
+def locate(spec, events, adsb_df, area, dem, out_dir, params=None, log=print, plots=True):
     t_start = time.time()
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     p = params or SearchParams()
-    sc = {"fmin": 40.0, "fmax": 400.0, "win_s": 1.0, "hop_s": 0.1, **(spec_cfg or {})}
-
-    log("decoding audio")
-    x, sr = load_audio(audio_path, sr=int(2.5 * sc["fmax"]))
-    spec = spectrogram(x, sr, sc["fmin"], sc["fmax"], sc["win_s"], sc["hop_s"])
-    log(f"  {spec.duration:.0f}s of audio")
-
-    if events is None:
-        log("detecting flyovers")
-        fits = detect_flyovers(spec, p.c, log=log)
-        if not fits:
-            raise RuntimeError("no aircraft Doppler curve found in the recording")
-        events = events_for_search(fits)
-        if plots:
-            curves = []
-            for f in fits:
-                ft = np.linspace(f["window"][0], f["window"][1], 400)
-                curves.append((ft, straight_flyover(ft, f["f0"], f["v"], f["d"], f["tc"], p.c),
-                               f"{f['tc']:.0f}s  ~{f['v']:.0f} m/s  ~{f['d']:.0f} m"))
-            plot_spectrogram(spec, out / "flyovers.png", fmin=40, fmax=min(sc["fmax"], 300), curves=curves,
-                             title=f"{len(fits)} flyover(s) detected")
     events = [e if isinstance(e, Event) else Event.from_dict(e) for e in events]
     (out / "events.json").write_text(json.dumps([e.__dict__ for e in events], indent=2, default=list))
 
@@ -96,3 +120,14 @@ def run(audio_path, adsb_df, area, dem, out_dir, events=None, params=None, spec_
     (out / "result.json").write_text(json.dumps(result, default=float))
     log(f"done in {result['elapsed_s']}s")
     return result
+
+
+def run(audio_path, adsb_df, area, dem, out_dir, events=None, params=None, log=print, plots=True):
+    p = params or SearchParams()
+    a = analyze_audio(audio_path, out_dir, p, log=log, plots=plots)
+    events = events if events is not None else a.events
+    if not events:
+        raise RuntimeError("no aircraft Doppler curve found in the recording")
+    res = locate(a.spec, events, adsb_df, area, dem, out_dir, p, log=log, plots=plots)
+    res["enf"] = a.enf
+    return res

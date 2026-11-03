@@ -42,6 +42,7 @@ class Event:
 class SearchParams:
     c: float = 343.0
     coarse_m: float = 200.0
+    screen_m: float = 2000.0
     fine_m: float = 100.0
     tile_deg: float = 1.0
     hear_radius_m: float = 10000.0
@@ -153,8 +154,55 @@ def silence_intervals(events, duration, p):
 # ---------------------------------------------------------------- coarse stage
 
 
+def _tiles_touched(segs, td, ring=1):
+    out = set()
+    for s in segs:
+        ij = set(zip(np.floor(s.lat[::10] / td).astype(int).tolist(), np.floor(s.lon[::10] / td).astype(int).tolist()))
+        for i, j in ij:
+            for di in range(-ring, ring + 1):
+                for dj in range(-ring, ring + 1):
+                    out.add((i + di, j + dj))
+    return out
+
+
+def _match_events(tree, gxyz, ev_segs, events, p, d_pad=0.0, t_pad=0.0, log=print, label=""):
+    """Listener points hearing event 1, then event 2 at the right offset, ..."""
+    e1 = events[0]
+    P = []
+    for e, segs_k in zip(events, ev_segs):
+        tab = _passes_table(tree, gxyz, segs_k, e.d[1] + d_pad, p.c, max(0.0, e.d[0] - d_pad), e.v)
+        if p.start_window:
+            tol = e.t_tol + t_pad
+            tab = tab[(tab["T"] >= p.start_window[0] + e.t_cpa - tol) & (tab["T"] <= p.start_window[1] + e.t_cpa + tol)]
+        if tab.empty:
+            return pd.DataFrame()
+        P.append(tab)
+    cand = P[0].rename(columns={"sid": "sid1", "T": "T1", "r": "r1", "v": "v1"})
+    for k in range(1, len(events)):
+        e = events[k]
+        nxt = P[k].rename(columns={"sid": f"sid{k+1}", "T": f"T{k+1}", "r": f"r{k+1}", "v": f"v{k+1}"})
+        cand = cand.merge(nxt, on="obs")
+        dt = cand[f"T{k+1}"] - cand["T1"] - (e.t_cpa - e1.t_cpa)
+        ok = dt.abs() <= (e1.t_tol + e.t_tol + 2 * t_pad)
+        for j in range(1, k + 1):
+            ok &= ~((cand[f"sid{k+1}"] == cand[f"sid{j}"]) & ((cand[f"T{k+1}"] - cand[f"T{j}"]).abs() < 30))
+        cand = cand[ok]
+        if len(cand) > p.max_candidates:
+            log(f"  {label}: {len(cand)} candidates, truncating")
+            cand = cand.iloc[: p.max_candidates]
+        if cand.empty:
+            break
+    return cand
+
+
 def coarse_search(segments, events, area, dem, duration, p, log=print):
-    """Return a DataFrame of surviving coarse grid points with matched segment ids."""
+    """Return a DataFrame of surviving coarse grid points with matched segment ids.
+
+    Only tiles crossed by aircraft matching every event are visited. Inside a
+    tile a cheap screening pass on a `screen_m` grid (sea-level ground,
+    tolerances widened for the coarse spacing) discards empty areas before the
+    200 m grid, the elevation model and the silence check are used.
+    """
     e1 = events[0]
     sil = silence_intervals(events, duration, p)
     # a plane passing closer than the ones we did hear would have been heard too
@@ -162,81 +210,86 @@ def coarse_search(segments, events, area, dem, duration, p, log=print):
     t_lo, t_hi = -np.inf, np.inf
     if p.start_window:
         t_lo, t_hi = p.start_window[0] - 120, p.start_window[1] + duration + 120
+    segs_t = _crop(segments, area["lat_min"] - 1, area["lat_max"] + 1, area["lon_min"] - 1.5, area["lon_max"] + 1.5,
+                   t_lo, t_hi)
+    ev_all = [[r for s in segs_t if s.prop for r in speed_runs(s, *e.v)] for e in events]
+    if not all(ev_all):
+        return pd.DataFrame()
+    td = p.tile_deg
+    tiles = set.intersection(*(_tiles_touched(runs, td) for runs in ev_all))
+    i0, i1 = int(np.floor(area["lat_min"] / td)), int(np.floor((area["lat_max"] - 1e-9) / td))
+    j0, j1 = int(np.floor(area["lon_min"] / td)), int(np.floor((area["lon_max"] - 1e-9) / td))
+    tiles = sorted((i, j) for i, j in tiles if i0 <= i <= i1 and j0 <= j <= j1)
+    log(f"  {len(tiles)} tile(s) crossed by matching aircraft")
+
+    # screening tolerances: unknown ground height (assume up to 3000 m) and coarse spacing
+    v_min = max(10.0, min(e.v[0] for e in events))
+    d_pad = p.screen_m + 3000.0
+    t_pad = (d_pad + 0.71 * p.screen_m * p.c / v_min) / p.c
+
     results = []
-    lat_tiles = np.arange(area["lat_min"], area["lat_max"], p.tile_deg)
-    lon_tiles = np.arange(area["lon_min"], area["lon_max"], p.tile_deg)
-    for la0 in lat_tiles:
-        la1 = min(la0 + p.tile_deg, area["lat_max"])
+    for i, j in tiles:
+        la0, lo0 = max(i * td, area["lat_min"]), max(j * td, area["lon_min"])
+        la1, lo1 = min((i + 1) * td, area["lat_max"]), min((j + 1) * td, area["lon_max"])
         buf_lat = p.hear_radius_m / M_PER_DEG_LAT
         buf_lon = p.hear_radius_m / m_per_deg_lon(max(abs(la0), abs(la1)))
-        for lo0 in lon_tiles:
-            lo1 = min(lo0 + p.tile_deg, area["lon_max"])
-            tile = _crop(segments, la0 - buf_lat, la1 + buf_lat, lo0 - buf_lon, lo1 + buf_lon, t_lo, t_hi)
-            ev_segs = [[r for s in tile if s.prop for r in speed_runs(s, *e.v)] for e in events]
-            if not all(ev_segs):
-                continue
-            glat, glon = latlon_grid(la0, la1, lo0, lo1, p.coarse_m)
-            gh = dem(glat, glon) + p.geoid_offset_m + p.obs_height_m
-            gxyz = ecef(glat, glon, gh)
-            tree = cKDTree(gxyz)
+        box = (la0 - buf_lat, la1 + buf_lat, lo0 - buf_lon, lo1 + buf_lon)
+        ev_segs = [_crop(runs, *box) for runs in ev_all]
+        if not all(ev_segs):
+            continue
+        label = f"tile {la0:.1f},{lo0:.1f}"
 
-            P = []
-            for k, (e, segs_k) in enumerate(zip(events, ev_segs)):
-                tab = _passes_table(tree, gxyz, segs_k, e.d[1], p.c, e.d[0], e.v)
-                if p.start_window:
-                    tab = tab[(tab["T"] >= p.start_window[0] + e.t_cpa - e.t_tol)
-                              & (tab["T"] <= p.start_window[1] + e.t_cpa + e.t_tol)]
-                P.append(tab)
-                if tab.empty:
-                    break
-            if any(t.empty for t in P) or len(P) < len(events):
-                continue
+        # 1) screening pass
+        slat, slon = latlon_grid(la0, la1, lo0, lo1, p.screen_m)
+        sxyz = ecef(slat, slon, np.zeros_like(slat))
+        scr = _match_events(cKDTree(sxyz), sxyz, ev_segs, events, p, d_pad, t_pad, log, label)
+        if scr.empty:
+            continue
+        keep = np.unique(scr["obs"].to_numpy())
 
-            cand = P[0].rename(columns={"sid": "sid1", "T": "T1", "r": "r1", "v": "v1"})
-            for k in range(1, len(events)):
-                e = events[k]
-                nxt = P[k].rename(columns={"sid": f"sid{k+1}", "T": f"T{k+1}", "r": f"r{k+1}", "v": f"v{k+1}"})
-                cand = cand.merge(nxt, on="obs")
-                dt = cand[f"T{k+1}"] - cand["T1"] - (e.t_cpa - e1.t_cpa)
-                ok = dt.abs() <= (e1.t_tol + e.t_tol)
-                for j in range(1, k + 1):
-                    ok &= ~((cand[f"sid{k+1}"] == cand[f"sid{j}"]) & ((cand[f"T{k+1}"] - cand[f"T{j}"]).abs() < 30))
-                cand = cand[ok]
-                if len(cand) > p.max_candidates:
-                    log(f"  tile {la0:.1f},{lo0:.1f}: {len(cand)} candidates, truncating")
-                    cand = cand.iloc[: p.max_candidates]
-                if cand.empty:
-                    break
-            if cand.empty:
-                continue
-            n_time = len(cand)
+        # 2) 200 m grid only around surviving screening cells
+        glat, glon = latlon_grid(la0, la1, lo0, lo1, p.coarse_m)
+        kx = m_per_deg_lon((la0 + la1) / 2)
+        near = cKDTree(np.c_[slat[keep] * M_PER_DEG_LAT, slon[keep] * kx])
+        dist, _ = near.query(np.c_[glat * M_PER_DEG_LAT, glon * kx], distance_upper_bound=p.screen_m)
+        sel = np.isfinite(dist)
+        glat, glon = glat[sel], glon[sel]
+        gh = dem(glat, glon) + p.geoid_offset_m + p.obs_height_m
+        gxyz = ecef(glat, glon, gh)
+        tree = cKDTree(gxyz)
+        cand = _match_events(tree, gxyz, ev_segs, events, p, log=log, label=label)
+        if cand.empty:
+            continue
+        n_time = len(cand)
 
-            if sil:
-                obs_u = np.unique(cand["obs"].to_numpy())
-                sub_tree = cKDTree(gxyz[obs_u])
-                origin = cand["T1"] - e1.t_cpa
-                lo_t, hi_t = origin.min() + min(a for a, _ in sil) - 60, origin.max() + max(b for _, b in sil) + 60
-                quiet = _passes_table(sub_tree, gxyz[obs_u], _crop(tile, -90, 90, -180, 180, lo_t - 60, hi_t),
-                                      r_sil, p.c)
-                if not quiet.empty:
-                    quiet["obs"] = obs_u[quiet["obs"].to_numpy()]
-                    c2 = cand.reset_index(drop=True)
-                    c2["row"] = np.arange(len(c2))
-                    m = c2.merge(quiet.rename(columns={"sid": "qsid", "T": "qT"})[["obs", "qsid", "qT"]], on="obs")
-                    rel = m["qT"] - (m["T1"] - e1.t_cpa)
-                    loud = np.zeros(len(m), bool)
-                    for a, b in sil:
-                        loud |= (rel >= a + e1.t_tol) & (rel <= b - e1.t_tol)
-                    for k in range(1, len(events) + 1):  # the matched passes themselves
-                        loud &= ~((m["qsid"] == m[f"sid{k}"]) & ((m["qT"] - m[f"T{k}"]).abs() < 30))
-                    bad = np.unique(m.loc[loud, "row"].to_numpy())
-                    cand = c2.drop(index=bad).drop(columns="row")
-            log(f"  tile {la0:.1f},{lo0:.1f}: {n_time} pass time-offset filter, {len(cand)} pass silence filter")
-            if cand.empty:
-                continue
-            cand = cand.copy()
-            cand["lat"], cand["lon"] = glat[cand["obs"].to_numpy()], glon[cand["obs"].to_numpy()]
-            results.append(cand.drop(columns="obs"))
+        if sil:
+            tile = _crop(segs_t, *box)
+            obs_u = np.unique(cand["obs"].to_numpy())
+            sub_tree = cKDTree(gxyz[obs_u])
+            origin = cand["T1"] - e1.t_cpa
+            lo_t, hi_t = origin.min() + min(a for a, _ in sil) - 60, origin.max() + max(b for _, b in sil) + 60
+            quiet = _passes_table(sub_tree, gxyz[obs_u], _crop(tile, -90, 90, -180, 180, lo_t - 60, hi_t),
+                                  r_sil, p.c)
+            if not quiet.empty:
+                quiet["obs"] = obs_u[quiet["obs"].to_numpy()]
+                c2 = cand.reset_index(drop=True)
+                c2["row"] = np.arange(len(c2))
+                m = c2.merge(quiet.rename(columns={"sid": "qsid", "T": "qT"})[["obs", "qsid", "qT"]], on="obs")
+                rel = m["qT"] - (m["T1"] - e1.t_cpa)
+                loud = np.zeros(len(m), bool)
+                for a, b in sil:
+                    loud |= (rel >= a + e1.t_tol) & (rel <= b - e1.t_tol)
+                for k in range(1, len(events) + 1):  # the matched passes themselves
+                    loud &= ~((m["qsid"] == m[f"sid{k}"]) & ((m["qT"] - m[f"T{k}"]).abs() < 30))
+                bad = np.unique(m.loc[loud, "row"].to_numpy())
+                cand = c2.drop(index=bad).drop(columns="row")
+        log(f"  {label}: {len(keep)} screening cells, {n_time} pass time-offset filter, "
+            f"{len(cand)} pass silence filter")
+        if cand.empty:
+            continue
+        cand = cand.copy()
+        cand["lat"], cand["lon"] = glat[cand["obs"].to_numpy()], glon[cand["obs"].to_numpy()]
+        results.append(cand.drop(columns="obs"))
     if not results:
         return pd.DataFrame()
     return pd.concat(results, ignore_index=True)

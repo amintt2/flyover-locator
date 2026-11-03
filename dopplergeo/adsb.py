@@ -58,7 +58,7 @@ def read_table(paths, aircraft_db=None):
     return df.dropna(subset=["lat", "lon", "alt_m"])[["flight_id", "time", "lat", "lon", "alt_m", "typecode"]]
 
 
-def _parse_trace(obj, bbox=None, t_range=None):
+def _parse_trace(obj, bbox=None, t_range=None, max_alt_m=None):
     """readsb trace JSON -> list of canonical rows."""
     base = float(obj.get("timestamp", 0))
     icao = str(obj.get("icao", "")).lower()
@@ -79,6 +79,8 @@ def _parse_trace(obj, bbox=None, t_range=None):
         alt_ft = geom if isinstance(geom, (int, float)) else alt
         if len(p) > 8 and isinstance(p[8], dict) and not tcode:
             tcode = p[8].get("t", "") or ""
+        if max_alt_m is not None and alt_ft * FT > max_alt_m:
+            continue  # cruising traffic is never heard as a Doppler curve
         rows.append((f"{icao}_{leg}", t, lat, lon, alt_ft * FT, tcode))
     return rows
 
@@ -105,6 +107,7 @@ class _ChainedStream(io.RawIOBase):
     def __init__(self, sources):
         self.sources = list(sources)
         self.cur = None
+        self.bytes = 0
 
     def readable(self):
         return True
@@ -123,18 +126,20 @@ class _ChainedStream(io.RawIOBase):
                 self.cur = self._open(self.sources.pop(0))
             n = self.cur.readinto(buf)
             if n:
+                self.bytes += n
                 return n
             self.cur.close()
             self.cur = None
 
 
-def stream_readsb_archive(sources, out_parquet, bbox, t_range=None, progress=True):
+def stream_readsb_archive(sources, out_parquet, bbox, t_range=None, log=print, every_mb=250, max_alt_m=None):
     """Stream a globe_history tar (parts in order) and keep only matching points.
 
     bbox = (lat_min, lat_max, lon_min, lon_max). Writes a small parquet file.
     """
-    stream = io.BufferedReader(_ChainedStream(sources), buffer_size=1 << 20)
-    rows, n = [], 0
+    raw = _ChainedStream(sources)
+    stream = io.BufferedReader(raw, buffer_size=1 << 20)
+    rows, n, next_mb = [], 0, every_mb
     with tarfile.open(fileobj=stream, mode="r|*") as tar:
         for member in tar:
             if not member.isfile() or "trace" not in member.name:
@@ -142,11 +147,12 @@ def stream_readsb_archive(sources, out_parquet, bbox, t_range=None, progress=Tru
             data = tar.extractfile(member).read()
             n += 1
             try:
-                rows += _parse_trace(_load_json_bytes(data), bbox, t_range)
+                rows += _parse_trace(_load_json_bytes(data), bbox, t_range, max_alt_m)
             except (ValueError, OSError):
                 continue
-            if progress and n % 5000 == 0:
-                print(f"  {n} traces scanned, {len(rows)} points kept", flush=True)
+            if log and raw.bytes / 1e6 >= next_mb:
+                next_mb += every_mb
+                log(f"  {raw.bytes / 1e9:.2f} GB read, {n} aircraft scanned, {len(rows)} points kept")
     df = pd.DataFrame(rows, columns=["flight_id", "time", "lat", "lon", "alt_m", "typecode"])
     df.to_parquet(out_parquet, index=False)
     return df
