@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flyover Locator</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --line: #2a313c; --text: #e6edf3; --muted: #8b949e;
+    --accent: #ff7a45; --ok: #3fb950; --err: #f85149;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  #map { position: fixed; inset: 0; z-index: 0; }
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000; background: var(--panel);
+    border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; max-height: 72vh; overflow-y: auto;
+    padding: 10px 16px calc(16px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 30px rgba(0,0,0,.4); }
+  @media (min-width: 900px) {
+    .sheet { left: 16px; right: auto; top: 16px; bottom: 16px; width: 380px; max-height: none;
+      border-radius: 14px; border: 1px solid var(--line); }
+    .grip { display: none; }
+  }
+  .grip { width: 40px; height: 4px; border-radius: 2px; background: var(--line); margin: 0 auto 10px; }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
+  input[type=datetime-local], input[type=number], input[type=password] {
+    width: 100%; padding: 11px 12px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--line); border-radius: 10px; font-size: 16px; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  .drop { border: 2px dashed var(--line); border-radius: 12px; padding: 18px; text-align: center;
+    color: var(--muted); cursor: pointer; transition: border-color .15s; }
+  .drop.over, .drop.has { border-color: var(--accent); color: var(--text); }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  button { width: 100%; margin-top: 16px; padding: 14px; border: 0; border-radius: 12px;
+    background: var(--accent); color: #111; font-weight: 650; font-size: 16px; cursor: pointer; }
+  button:disabled { opacity: .45; cursor: default; }
+  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 14px; }
+  .log { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px;
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 34vh; overflow-y: auto;
+    white-space: pre-wrap; color: var(--muted); }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin: 10px 0; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .res { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-top: 10px; cursor: pointer; }
+  .res b { color: var(--accent); }
+  .res small { color: var(--muted); display: block; }
+  .imgs img { width: 100%; border-radius: 10px; margin-top: 10px; border: 1px solid var(--line); }
+  .err { color: var(--err); }
+  .ok { color: var(--ok); }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="sheet" id="sheet">
+  <div class="grip"></div>
+
+  <section id="form">
+    <h1>Flyover Locator</h1>
+    <p class="sub">Localise un enregistrement grâce aux avions qu'on entend passer.</p>
+
+    <label>1 · Zone de recherche <span id="pickHint">(touche la carte)</span></label>
+    <input type="range" id="radius" min="5" max="100" value="30">
+    <div class="hint">Rayon : <span id="radiusVal">30</span> km. Plus la zone est petite, plus c'est rapide et fiable.</div>
+
+    <label>2 · Vidéo ou audio</label>
+    <div class="drop" id="drop">Dépose ou choisis un fichier<br><small>mp4, mov, m4a, wav, mp3…</small></div>
+    <input type="file" id="file" accept="video/*,audio/*" class="hidden">
+    <div class="check"><input type="checkbox" id="useMeta" checked><span>Utiliser l'heure inscrite dans la vidéo</span></div>
+
+    <label>3 · Date et heure de début (UTC), si connue</label>
+    <div class="row">
+      <input type="datetime-local" id="start" step="1">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div><label style="margin-top:0">Précision ± (minutes)</label><input type="number" id="tol" value="30" min="1" max="720"></div>
+    </div>
+    <div class="hint">Sans métadonnées, il faut au moins la date. Plus l'heure est précise, plus 1 seul avion suffit.</div>
+
+    <div id="pwWrap" class="hidden">
+      <label>Mot de passe</label>
+      <input type="password" id="pw" autocomplete="current-password">
+    </div>
+
+    <button id="go" disabled>Choisis une zone et un fichier</button>
+  </section>
+
+  <section id="progress" class="hidden">
+    <h1 id="pTitle">Analyse en cours…</h1>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="log" id="log"></div>
+    <div class="imgs" id="flyImg"></div>
+  </section>
+
+  <section id="results" class="hidden">
+    <h1>Résultats</h1>
+    <p class="sub" id="rSub"></p>
+    <div id="rList"></div>
+    <div class="imgs" id="rImgs"></div>
+    <button class="ghost" id="again">Nouvelle recherche</button>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const map = L.map('map', { zoomControl: false }).setView([39.5, -98.35], 4);
+L.control.zoom({ position: 'topright' }).addTo(map);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom: 16, attribution: 'Esri' }).addTo(map);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom: 16 }).addTo(map);
+const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  { maxZoom: 19, attribution: 'Esri' });
+L.control.layers({}, { 'Satellite': sat }, { position: 'topright' }).addTo(map);
+
+let center = null, circle = null, file = null, needPw = false, layers = [];
+const store = { get: k => { try { return localStorage.getItem(k) } catch { return null } },
+                set: (k, v) => { try { localStorage.setItem(k, v) } catch {} } };
+
+fetch('api/config').then(r => r.json()).then(c => {
+  needPw = c.password; $('radius').max = c.max_radius_km;
+  if (needPw) { $('pwWrap').classList.remove('hidden'); $('pw').value = store.get('pw') || ''; }
+});
+
+function drawCircle() {
+  if (!center) return;
+  const r = +$('radius').value * 1000;
+  if (circle) circle.setLatLng(center).setRadius(r);
+  else circle = L.circle(center, { radius: r, color: '#ff7a45', weight: 2, fillOpacity: .08 }).addTo(map);
+  $('pickHint').textContent = `(${center.lat.toFixed(3)}, ${center.lng.toFixed(3)})`;
+  refresh();
+}
+map.on('click', e => { if (!$('form').classList.contains('hidden')) { center = e.latlng; drawCircle(); } });
+$('radius').oninput = () => { $('radiusVal').textContent = $('radius').value; drawCircle(); };
+
+const drop = $('drop');
+drop.onclick = () => $('file').click();
+$('file').onchange = () => setFile($('file').files[0]);
+['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => setFile(e.dataTransfer.files[0]));
+function setFile(f) {
+  if (!f) return;
+  file = f; drop.classList.add('has');
+  drop.innerHTML = `${f.name}<br><small>${(f.size / 1e6).toFixed(1)} Mo</small>`;
+  refresh();
+}
+function refresh() {
+  const ok = center && file;
+  $('go').disabled = !ok;
+  $('go').textContent = ok ? 'Localiser' : (!center ? 'Touche la carte pour choisir la zone' : 'Ajoute un fichier');
+}
+
+function headers() { return needPw ? { 'X-Password': $('pw').value } : {}; }
+
+$('go').onclick = () => {
+  if (needPw) store.set('pw', $('pw').value);
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('lat', center.lat); fd.append('lon', center.lng);
+  fd.append('radius_km', $('radius').value);
+  if ($('start').value) fd.append('start', $('start').value + 'Z');
+  fd.append('start_tol_min', $('tol').value || 30);
+  fd.append('use_metadata', $('useMeta').checked);
+  show('progress'); $('pTitle').textContent = 'Envoi du fichier…'; $('log').textContent = '';
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', 'api/jobs');
+  Object.entries(headers()).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+  xhr.upload.onprogress = e => { if (e.lengthComputable) $('barFill').style.width = (100 * e.loaded / e.total) + '%'; };
+  xhr.onload = () => {
+    if (xhr.status !== 200) { fail(JSON.parse(xhr.responseText || '{}').detail || ('Erreur ' + xhr.status)); return; }
+    const { job } = JSON.parse(xhr.responseText);
+    history.replaceState(null, '', '#' + job);
+    poll(job);
+  };
+  xhr.onerror = () => fail('Envoi impossible');
+  xhr.send(fd);
+};
+
+function show(id) { ['form', 'progress', 'results'].forEach(s => $(s).classList.toggle('hidden', s !== id)); }
+function fail(msg) { $('pTitle').innerHTML = `<span class="err">Échec</span>`; $('log').textContent += '\n' + msg;
+  $('flyImg').insertAdjacentHTML('beforeend', '<button class="ghost" onclick="reset()">Réessayer</button>'); }
+
+function img(job, name) { return `api/jobs/${job}/img/${name}?pw=${encodeURIComponent(needPw ? $('pw').value : '')}`; }
+
+async function poll(job) {
+  show('progress');
+  $('pTitle').textContent = 'Analyse en cours…';
+  let shownFly = false;
+  while (true) {
+    let st;
+    try {
+      const r = await fetch('api/jobs/' + job, { headers: headers() });
+      if (!r.ok) { fail(r.status === 404 ? 'Analyse introuvable' : 'Erreur ' + r.status); return; }
+      st = await r.json();
+    } catch { await new Promise(r => setTimeout(r, 3000)); continue; }
+    $('log').textContent = st.log.join('\n');
+    $('log').scrollTop = 1e9;
+    const steps = ['uploaded', 'ADS-B', 'decoding', 'detecting', 'coarse', 'fine', 'done'];
+    const last = st.log.join(' ');
+    const k = steps.reduce((a, s, i) => last.includes(s) ? i : a, 0);
+    $('barFill').style.width = (15 + 85 * k / (steps.length - 1)) + '%';
+    if (!shownFly && last.includes('coarse search')) {
+      shownFly = true;
+      $('flyImg').innerHTML = `<img src="${img(job, 'flyovers.png')}" alt="avions détectés">`;
+    }
+    if (st.state === 'done') return showResults(job, st.result);
+    if (st.state === 'error') return fail(st.error);
+    await new Promise(r => setTimeout(r, 2500));
+  }
+}
+
+function showResults(job, res) {
+  show('results');
+  if (innerWidth < 900) $('sheet').style.maxHeight = '45vh';
+  layers.forEach(l => map.removeLayer(l)); layers = [];
+  const top = res.top || [];
+  const conf = res.confidence ? ` · confiance ×${res.confidence}` : '';
+  $('rSub').textContent = `${res.events.length} passage(s) d'avion utilisé(s) · ${res.n_scored} points testés · ${res.elapsed_s}s${conf}`;
+  if (res.heat && res.heat.length && L.heatLayer) {
+    const h = L.heatLayer(res.heat, { radius: 14, blur: 16, maxZoom: 15 }).addTo(map); layers.push(h);
+  }
+  $('rList').innerHTML = '';
+  top.slice(0, 5).forEach((t, i) => {
+    const m = L.circleMarker([t.lat, t.lon], { radius: i ? 6 : 10, color: i ? '#8b949e' : '#ff7a45',
+      fillOpacity: i ? .5 : .9, weight: 2 }).addTo(map);
+    const when = new Date(t.rec_start_unix * 1000).toISOString().replace('T', ' ').slice(0, 19);
+    const html = `<b>#${t.rank}</b> ${t.lat.toFixed(5)}, ${t.lon.toFixed(5)}
+      <small>score ${t.score.toFixed(2)} · avions ${t.flights.join(' → ')}</small>
+      <small>début de l'enregistrement ≈ ${when} UTC</small>`;
+    m.bindPopup(html + `<br><a target="_blank" href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${t.lat},${t.lon}">Street View</a>`);
+    layers.push(m);
+    const div = document.createElement('div');
+    div.className = 'res'; div.innerHTML = html;
+    div.onclick = () => { map.setView([t.lat, t.lon], 16); m.openPopup(); };
+    $('rList').appendChild(div);
+  });
+  if (top.length) map.setView([top[0].lat, top[0].lon], 14);
+  $('rImgs').innerHTML = ['match_1.png', 'flyovers.png'].map(n => `<img src="${img(job, n)}" alt="">`).join('');
+}
+
+function reset() { history.replaceState(null, '', location.pathname); show('form'); $('sheet').style.maxHeight = '';
+  $('barFill').style.width = 0; $('flyImg').innerHTML = ''; refresh(); }
+$('again').onclick = reset;
+if (location.hash.length > 1) poll(location.hash.slice(1));
+</script>
+</body>
+</html>

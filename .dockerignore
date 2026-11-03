@@ -1,0 +1,7 @@
+.venv
+data
+synth_demo
+tests
+**/__pycache__
+.pytest_cache
+.git

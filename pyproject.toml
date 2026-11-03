@@ -1,0 +1,25 @@
+[project]
+name = "dopplergeo"
+version = "0.1.0"
+description = "Geolocate an audio recording from aircraft Doppler curves matched against ADS-B data"
+requires-python = ">=3.10"
+dependencies = ["numpy", "scipy", "pandas", "pyarrow", "matplotlib"]
+
+[project.optional-dependencies]
+web = ["fastapi", "uvicorn[standard]", "python-multipart"]
+plot = ["matplotlib"]
+geotiff = ["rasterio"]
+dev = ["pytest", "matplotlib"]
+
+[project.scripts]
+dopplergeo = "dopplergeo.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["dopplergeo"]
+
+[tool.setuptools.package-data]
+dopplergeo = ["static/*"]
