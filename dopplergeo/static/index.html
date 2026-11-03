@@ -147,7 +147,7 @@ a { color: var(--accent); }
 .small { font-size: 13px; }
 .tiny { font-size: 12px; }
 .hint { font-size: 12.5px; color: var(--muted); margin-top: 8px; line-height: 1.45; }
-.hint.warn { color: var(--warn); }
+.hint.warn, .group-f.warn { color: var(--warn); }
 
 /* drop zone */
 .drop { display: flex; align-items: center; gap: 14px; width: 100%; padding: 16px; border-radius: var(--r-sm);
@@ -355,6 +355,55 @@ details.more[open] summary::before { transform: rotate(45deg); }
 @keyframes toastIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
 
 .plane-mk { pointer-events: none; }
+
+/* ---- upload screen: native-app style ---- */
+.pick { width: 100%; display: flex; align-items: center; gap: 14px; padding: 16px; margin-top: 4px; border-radius: 20px;
+  border: 1px solid rgba(255,122,69,.28); background: linear-gradient(135deg, rgba(255,122,69,.18), rgba(255,122,69,.04) 70%);
+  color: var(--text); text-align: left; cursor: pointer; font: inherit; transition: transform .12s, background .2s; -webkit-tap-highlight-color: transparent; }
+.pick:active { transform: scale(.98); }
+.pick-ic { width: 50px; height: 50px; border-radius: 15px; background: var(--accent); color: #1c0d05; display: grid; place-items: center;
+  flex: none; box-shadow: 0 8px 22px rgba(255,122,69,.35); }
+.pick-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pick-t { font-weight: 680; font-size: 17px; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick-s { font-size: 13px; color: var(--muted); }
+.pick-go { color: var(--muted); flex: none; display: grid; }
+.pick.has { background: var(--card); border-color: var(--line-2); }
+.pick.has .pick-ic { background: #30d158; box-shadow: 0 8px 22px rgba(48,209,88,.3); }
+.group-h { font-size: 12.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 24px 6px 8px; }
+.group { background: var(--card); border-radius: 16px; overflow: hidden; border: 1px solid var(--line); }
+.group + .group, .group-f + .group { margin-top: 14px; }
+.group .row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 14px; position: relative;
+  cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.group .row + .row::before, .group .row + .row-sub::before { content: ""; position: absolute; top: 0; left: 56px; right: 0; height: 1px; background: var(--line); }
+.advg .row:not(summary)::before { left: 14px !important; }
+.row-ic { width: 30px; height: 30px; border-radius: 9px; background: var(--c); color: #fff; display: grid; place-items: center; flex: none; }
+.row-l { flex: 1; min-width: 0; font-size: 15.5px; display: flex; flex-direction: column; gap: 1px; }
+.row-l small { font-size: 12px; color: var(--muted); }
+.row-in { flex: none; max-width: 55%; background: transparent; border: 0; outline: 0; color: var(--accent); font: inherit; font-size: 15.5px;
+  font-weight: 560; text-align: right; -webkit-appearance: none; appearance: none; padding: 8px 0; color-scheme: dark; cursor: pointer; }
+.row-in::-webkit-date-and-time-value { text-align: right; }
+select.row-in { direction: rtl; }
+select.row-in option { direction: ltr; background: var(--card-2); color: var(--text); }
+.row-v { color: var(--muted); font-size: 14px; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zone-v { display: flex; flex-direction: column; align-items: flex-end; white-space: normal; }
+.zone-v b { color: var(--text); font-weight: 560; font-size: 14px; } .zone-v span { font-size: 12px; }
+.advg summary { list-style: none; } .advg summary::-webkit-details-marker { display: none; }
+.chev { width: 9px; height: 9px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg);
+  transition: transform .2s; margin: 0 4px 0 2px; flex: none; }
+.advg[open] .chev { transform: rotate(90deg); }
+.row-sub { padding: 12px 14px 4px; position: relative; }
+.row-note { font-size: 12.5px; color: var(--muted); padding: 10px 14px 14px; line-height: 1.45; border-top: 1px solid var(--line); }
+.group-f { font-size: 12.5px; color: var(--muted); margin: 8px 6px 0; line-height: 1.45; }
+.group-f:empty { display: none; }
+.cta { position: sticky; bottom: 0; z-index: 2; margin: 18px -16px 0; padding: 14px 16px calc(6px + env(safe-area-inset-bottom));
+  background: linear-gradient(to bottom, transparent, var(--surface) 22%); }
+.cta .btn { margin-top: 0; height: 54px; font-size: 16.5px; border-radius: 16px; }
+.cta .btn:disabled { opacity: 1; background: var(--surface-2, #1f232c); color: var(--muted); box-shadow: none; }
+.text-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 6px; padding: 12px;
+  background: none; border: 0; color: var(--accent); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; border-radius: 12px; }
+.text-btn:active { background: var(--accent-soft); }
+.text-btn:disabled { color: var(--muted); opacity: .55; cursor: default; background: none; }
+.foot { text-align: center; font-size: 12px; color: var(--muted); margin: 6px 0 0; }
 </style>
 </head>
 <body>
@@ -397,52 +446,48 @@ details.more[open] summary::before { transform: rotate(45deg); }
 
     <!-- ============== FILE: form -->
     <section class="view" data-view="file-form">
-      <div class="card">
-        <div class="card-title"><span class="step-n">1</span>Vidéo ou audio</div>
-        <button class="drop" id="drop" type="button">
-          <span class="drop-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></span>
-          <div><div class="drop-t" id="dropT">Choisir un fichier</div><div class="drop-s" id="dropS">mp4, mov, m4a, wav, mp3… · fichier original de préférence</div></div>
-        </button>
-        <input type="file" id="file" accept="video/*,audio/*,.m4a,.wav,.mp3,.mov,.mp4,.aac,.flac,.ogg,.webm" hidden>
-      </div>
+      <button class="pick" id="drop" type="button">
+        <span class="pick-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></span>
+        <span class="pick-txt"><span class="pick-t" id="dropT">Importer une vidéo</span><span class="pick-s" id="dropS">Vidéo ou audio · le fichier original garde l'heure</span></span>
+        <span class="pick-go"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span>
+      </button>
+      <input type="file" id="file" accept="video/*,audio/*,.m4a,.wav,.mp3,.mov,.mp4,.aac,.flac,.ogg,.webm" hidden>
 
-      <div class="card">
-        <div class="card-title"><span class="step-n">2</span>Date de l'enregistrement</div>
-        <div class="row2">
-          <div class="field"><label for="date">Date</label><input class="input" type="date" id="date"></div>
-          <div class="field"><label for="time">Heure UTC <span class="muted">· option</span></label><input class="input" type="time" id="time" step="1"></div>
-        </div>
-        <div class="hint" id="timeHint"></div>
+      <div class="group-h">Quand</div>
+      <div class="group">
+        <label class="row"><span class="row-ic" style="--c:#ff9f0a"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span>
+          <span class="row-l">Date</span><input class="row-in" type="date" id="date"></label>
+        <label class="row"><span class="row-ic" style="--c:#5e5ce6"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+          <span class="row-l">Heure<small>UTC · optionnelle</small></span><input class="row-in" type="time" id="time" step="1"></label>
+        <label class="row"><span class="row-ic" style="--c:#30d158"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg></span>
+          <span class="row-l">Heure de la vidéo<small>prioritaire si le fichier la contient</small></span>
+          <span class="switch"><input type="checkbox" id="useMeta" checked><i></i></span></label>
       </div>
+      <div class="group-f" id="timeHint"></div>
 
-      <details class="adv" id="adv">
-        <summary><span>Options avancées</span><span class="adv-s" id="advSum"></span></summary>
-        <div class="adv-body">
-          <div class="field"><label for="tol">Précision de l'heure</label>
-            <select class="input" id="tol">
-              <option value="5">± 5 min</option><option value="15">± 15 min</option><option value="30" selected>± 30 min</option>
-              <option value="60">± 1 h</option><option value="180">± 3 h</option><option value="720">± 12 h</option>
-            </select></div>
-          <label class="switch-row"><span>Utiliser l'heure inscrite dans la vidéo<span class="muted tiny" style="display:block">Si le fichier la contient, elle remplace la date saisie.</span></span>
-            <span class="switch"><input type="checkbox" id="useMeta" checked><i></i></span></label>
-          <div class="field" style="margin-top:16px"><label>Zone de recherche</label>
-            <div class="zone-line">
-              <div class="zl-t" id="fZoneT"></div>
-              <button class="link-btn" id="fZoneClear" hidden>Retirer</button>
-            </div>
-            <div id="fZoneRadius" hidden>
-              <div class="range-head"><span>Rayon</span><b class="num"><span id="fRadV">30</span> km</b></div>
-              <input type="range" id="fRad" min="1" max="100" value="30" step="1">
-            </div>
-            <div class="hint">Sans zone, on cherche partout où il y a des données d'avions. Une zone rend la recherche plus rapide et plus fiable.</div>
-          </div>
+      <details class="group advg" id="adv">
+        <summary class="row"><span class="row-ic" style="--c:#64d2ff"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg></span>
+          <span class="row-l">Options avancées</span><span class="row-v" id="advSum"></span><span class="chev"></span></summary>
+        <label class="row"><span class="row-l">Précision de l'heure</span>
+          <select class="row-in" id="tol">
+            <option value="5">± 5 min</option><option value="15">± 15 min</option><option value="30" selected>± 30 min</option>
+            <option value="60">± 1 h</option><option value="180">± 3 h</option><option value="720">± 12 h</option>
+          </select></label>
+        <div class="row row-zone"><span class="row-l">Zone<small>touche la carte pour la placer</small></span>
+          <span class="row-v zone-v" id="fZoneT"></span><button class="link-btn" id="fZoneClear" hidden>Retirer</button></div>
+        <div class="row-sub" id="fZoneRadius" hidden>
+          <div class="range-head"><span>Rayon</span><b class="num"><span id="fRadV">30</span> km</b></div>
+          <input type="range" id="fRad" min="1" max="100" value="30" step="1">
         </div>
+        <div class="row-note">Sans zone, on cherche partout où il y a des données d'avions. Une zone rend la recherche plus rapide.</div>
       </details>
 
-      <button class="btn" id="goBtn" disabled>Choisis un fichier</button>
-      <button class="btn ghost" id="detectBtn" disabled>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 7v10M21 12h0"/></svg>Juste détecter les avions</button>
-      <p class="hint" style="text-align:center;margin-top:12px">À utiliser sur tes propres enregistrements.</p>
+      <div class="cta">
+        <button class="btn" id="goBtn" disabled>Choisis un fichier</button>
+        <button class="text-btn" id="detectBtn" disabled>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 7v10"/></svg>Juste détecter les avions</button>
+        <p class="foot">À utiliser sur tes propres enregistrements.</p>
+      </div>
     </section>
 
     <!-- ============== FILE: progress -->
@@ -1018,8 +1063,8 @@ function setFile(f) {
 function updateFileZoneUI() {
   const z = file.zone;
   $('fZoneClear').hidden = !z; $('fZoneRadius').hidden = !z;
-  $('fZoneT').innerHTML = z ? `<b class="num">${fmtCoord(z.lat, z.lon)}</b><span>Cercle de ${z.r} km · touche ailleurs pour déplacer</span>`
-    : `<b>Partout</b><span>Touche la carte pour limiter à une zone</span>`;
+  $('fZoneT').innerHTML = z ? `<b class="num">${fmtCoord(z.lat, z.lon)}</b><span>rayon ${z.r} km</span>`
+    : `<b>Partout</b>`;
   refreshGo();
 }
 $('fZoneClear').onclick = () => { file.zone = null; updateFileZoneUI(); renderZone(); };
@@ -1034,13 +1079,13 @@ function refreshGo() {
   $('goBtn').innerHTML = ok ? `${svgIc.search.replace('24" height="24', '19" height="19')}Localiser` : 'Choisis un fichier';
   const h = $('timeHint'), d = $('date').value, t = $('time').value;
   if (!d && !$('useMeta').checked) {
-    h.className = 'hint warn'; h.textContent = 'Sans date (ni heure de la vidéo), on ne pourra que détecter les avions, pas localiser.';
+    h.className = 'group-f warn'; h.textContent = 'Sans date (ni heure de la vidéo), on ne pourra que détecter les avions, pas localiser.';
   } else if (!d) {
-    h.className = 'hint'; h.textContent = 'On essaiera l\'heure inscrite dans la vidéo. Les applis de messagerie l\'effacent souvent : dans le doute, mets la date.';
+    h.className = 'group-f'; h.textContent = 'On essaiera l\'heure inscrite dans la vidéo. Les applis de messagerie l\'effacent souvent : dans le doute, mets la date.';
   } else if (!t) {
-    h.className = 'hint'; h.textContent = 'Avec seulement la date, on cherche sur toute la journée (plus long). L\'heure, même approximative, aide beaucoup.';
+    h.className = 'group-f'; h.textContent = 'Avec seulement la date, on cherche sur toute la journée (plus long). L\'heure, même approximative, aide beaucoup.';
   } else {
-    h.className = 'hint'; h.textContent = `Heure prise à ± ${$('tol').selectedOptions[0].text.replace('± ', '')} près (modifiable dans les options avancées).`;
+    h.className = 'group-f'; h.textContent = `Heure prise à ± ${$('tol').selectedOptions[0].text.replace('± ', '')} près (modifiable dans les options avancées).`;
   }
   const parts = [];
   if (file.zone) parts.push(`zone ${file.zone.r} km`);
