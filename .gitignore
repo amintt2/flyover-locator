@@ -4,3 +4,4 @@ synth_demo/
 __pycache__/
 .pytest_cache/
 *.egg-info/
+.claude/
