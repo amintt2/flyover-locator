@@ -7,7 +7,7 @@ import subprocess
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, median_filter
 from scipy.optimize import least_squares
 
 from .physics import straight_flyover
@@ -115,11 +115,15 @@ class Bands:
         return np.where(in_low, self.low.lookup(t, f), self.wide.lookup(t, f))
 
 
-def spectrogram(x, sr, fmin, fmax, win_s=1.0, hop_s=0.1, pad=4, smooth_hz=0.5, smooth_s=0.2):
+def spectrogram(x, sr, fmin, fmax, win_s=1.0, hop_s=0.1, pad=4, smooth_hz=0.5, smooth_s=0.2, local_hz=None):
     """STFT restricted to [fmin, fmax], computed in chunks so long recordings fit in memory.
 
     z is each frequency row minus its median (removes stationary hum), divided by a
     robust global noise scale, so a faint Doppler line stands out as positive values.
+
+    local_hz: first subtract, frame by frame, the median level of the surrounding
+    local_hz of spectrum. Speech and music raise a whole stretch of spectrum at once;
+    a plane's tone rises above its neighbours, so it stays visible under them.
     """
     n = int(round(win_s * sr))
     hop = max(1, int(round(hop_s * sr)))
@@ -138,7 +142,13 @@ def spectrogram(x, sr, fmin, fmax, win_s=1.0, hop_s=0.1, pad=4, smooth_hz=0.5, s
     times = (np.arange(n_frames) * hop + n / 2) / sr
     freqs = freqs[band]
 
-    z = db - np.median(db, axis=1, keepdims=True)
+    z = db
+    if local_hz:
+        size = (int(local_hz / (freqs[1] - freqs[0])) | 1, 1)
+        z = np.empty_like(db)
+        for s in range(0, n_frames, 2048):
+            z[:, s : s + 2048] = db[:, s : s + 2048] - median_filter(db[:, s : s + 2048], size=size, mode="nearest")
+    z = z - np.median(z, axis=1, keepdims=True)
     scale = 1.4826 * np.median(np.abs(z)) + 1e-9
     z = z / scale
     sig = (smooth_hz / (freqs[1] - freqs[0]), smooth_s / hop_s)

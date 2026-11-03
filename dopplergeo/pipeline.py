@@ -21,7 +21,7 @@ from .search import Event, SearchParams, best_per_combination, coarse_search, fi
 
 SPEC = {"fmin": 40.0, "fmax": 400.0, "win_s": 1.0, "hop_s": 0.1}
 SR = 1000
-WIDE = {"sr": 8000, "fmin": 100.0, "fmax": 3000.0, "win_s": 0.25, "hop_s": 0.05}  # fast, high-pitched passes
+WIDE = {"sr": 8000, "fmin": 100.0, "fmax": 3000.0, "win_s": 0.25, "hop_s": 0.05, "local_hz": 40.0}  # high-pitched passes
 
 
 @dataclass
@@ -62,9 +62,14 @@ def analyze_audio(source, out_dir=None, p=None, log=print, plots=True, sr=SR, cu
     if xw is not None:
         long_ = len(xw) / srw > 1800  # keep memory bounded on long recordings
         wide = spectrogram(xw, srw, WIDE["fmin"], min(WIDE["fmax"] * (0.5 if long_ else 1), 0.45 * srw),
-                           WIDE["win_s"], WIDE["hop_s"] * (2 if long_ else 1), pad=2, smooth_hz=2.0, smooth_s=0.1)
+                           WIDE["win_s"], WIDE["hop_s"] * (2 if long_ else 1), pad=2, smooth_hz=2.0, smooth_s=0.1,
+                           local_hz=WIDE["local_hz"])
         del xw
-        for sf in detect_short(wide, p.c, log=log, clips=clips):
+        # fast passes (1-4 s drops), then slower ones pitched above the main band (props
+        # at 300-1500 Hz, jets further away): drops of 4-12 s under voice or music
+        for sf in (detect_short(wide, p.c, log=log, clips=clips)
+                   + detect_short(wide, p.c, win_s=40.0, step_s=8.0, max_tv=12.0, log=log, clips=clips,
+                                  fmin=250.0, fmax=1500.0, label="high-pitched pass", cover=0.15)):
             if all(abs(sf["tc"] - f["tc"]) > 20 for f in fits):
                 fits.append(sf)
         fits.sort(key=lambda f: f["tc"])

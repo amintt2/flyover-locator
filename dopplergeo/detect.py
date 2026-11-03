@@ -137,22 +137,26 @@ def _fit_window(spec, c, t0, t1, ridge, ca, cb, min_drop, max_rms, min_strength,
     return fit
 
 
-def _drop_missing(t, f, inl, fit, c):
-    """True when nothing was tracked through the middle of the drop (a jump, not a curve)."""
+def _drop_missing(t, f, inl, fit, c, share=0.5):
+    """True when less than `share` of the middle of the drop was tracked (a jump, not a curve)."""
     f0, v = fit["f0"], fit["v"]
     hi, lo = f0 / (1 - v / c), f0 / (1 + v / c)
     mid = inl & (f > lo + 0.3 * (hi - lo)) & (f < hi - 0.3 * (hi - lo))
     tv = fit["d"] / max(v, 1e-6)
-    return mid.sum() < 0.5 * min(tv, 10.0) / max(np.median(np.diff(t)) if len(t) > 1 else 1.0, 1e-3)
+    return mid.sum() < share * min(tv, 10.0) / max(np.median(np.diff(t)) if len(t) > 1 else 1.0, 1e-3)
 
 
-def detect_short(spec, c=343.0, win_s=14.0, step_s=5.0, max_tv=4.0, min_strength=1.5, log=print, clips=None):
+def detect_short(spec, c=343.0, win_s=14.0, step_s=5.0, max_tv=4.0, min_strength=1.5, log=print, clips=None,
+                 fmin=None, fmax=None, label="fast pass", cover=0.5):
     """Close, fast passes (jets on approach, low flybys): the frequency drop lasts only
     d/v = 1-4 s and is often high pitched, with music or speech on top. Short windows are
     tracked in overlapping frequency bands so a louder sound elsewhere cannot hide the
     line, and a fit is kept only if it follows the Doppler S curve through its drop.
-    `spec` is a wide-band spectrogram (short frames)."""
-    lo_f, hi_f = float(spec.freqs[0]), float(spec.freqs[-1])
+    `spec` is a wide-band spectrogram (short frames). With longer windows and a larger
+    max_tv the same search finds slower passes above the main detector's band;
+    `cover` is the share of the window the line must be seen in (lower under speech).
+    """
+    lo_f, hi_f = max(float(spec.freqs[0]), fmin or 0), min(float(spec.freqs[-1]), fmax or np.inf)
     bands, a = [], lo_f
     while a < hi_f:
         bands.append((a, min(a * 2.5, hi_f)))
@@ -170,7 +174,7 @@ def detect_short(spec, c=343.0, win_s=14.0, step_s=5.0, max_tv=4.0, min_strength
             ridges = _ridges(spec, windows, fa, fb, max_jump_hz=0.15 * fb * spec.hop, jump_cost=0.5, min_z=1.0,
                              pool=pool)
             for t0, t1 in windows:
-                fit = _short_fit(spec, c, t0, t1, ridges[float(t0)], max_tv, min_strength)
+                fit = _short_fit(spec, c, t0, t1, ridges[float(t0)], max_tv, min_strength, cover)
                 if fit:
                     fit["clip"] = ci
                     found.append(fit)
@@ -181,14 +185,14 @@ def detect_short(spec, c=343.0, win_s=14.0, step_s=5.0, max_tv=4.0, min_strength
             events.append(fit)
     events.sort(key=lambda x: x["tc"])
     for e in events:
-        log(f"  fast pass at {e['tc']:.1f}s: f0={e['f0']:.0f}Hz v={e['v']:.0f}m/s d={e['d']:.0f}m "
+        log(f"  {label} at {e['tc']:.1f}s: f0={e['f0']:.0f}Hz v={e['v']:.0f}m/s d={e['d']:.0f}m "
             f"drop {e['d'] / e['v']:.1f}s strength={e['strength']:.1f}")
     return events
 
 
-def _short_fit(spec, c, t0, t1, ridge, max_tv, min_strength):
+def _short_fit(spec, c, t0, t1, ridge, max_tv, min_strength, cover=0.5):
     t, f, w = ridge
-    if len(t) < 0.5 * (t1 - t0) / spec.hop:
+    if len(t) < cover * (t1 - t0) / spec.hop:
         return None
     tol = max(3.0, 0.006 * float(np.median(f)))
     try:
@@ -202,12 +206,12 @@ def _short_fit(spec, c, t0, t1, ridge, max_tv, min_strength):
     if fit["rms_hz"] > tol / 2:
         return None
     inl = fit.pop("inliers")
-    if _drop_missing(t, f, inl, fit, c):
+    if _drop_missing(t, f, inl, fit, c, share=min(0.5, cover)):
         return None
     # the drop itself must be followed, and most of the modelled shift seen in the data
-    half = max(1.0, 2 * tv)
+    half = min(max(1.0, 2 * tv), 0.3 * (t1 - t0))
     near = (np.abs(t - tc) < half) & inl
-    if near.sum() < 0.6 * 2 * half / spec.hop:
+    if near.sum() < 1.2 * cover * 2 * half / spec.hop:
         return None
     seen = np.percentile(f[inl], 95) - np.percentile(f[inl], 5)
     if seen < 0.5 * fit["f0"] * 2 * v / c:
