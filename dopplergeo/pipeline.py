@@ -66,10 +66,11 @@ def analyze_audio(source, out_dir=None, p=None, log=print, plots=True, sr=SR, cu
                            local_hz=WIDE["local_hz"])
         del xw
         # fast passes (1-4 s drops), then slower ones pitched above the main band (props
-        # at 300-1500 Hz, jets further away): drops of 4-12 s under voice or music
+        # at 300-1500 Hz, jets further away): drops of 4-20 s under voice or music
         for sf in (detect_short(wide, p.c, log=log, clips=clips)
-                   + detect_short(wide, p.c, win_s=40.0, step_s=8.0, max_tv=12.0, log=log, clips=clips,
-                                  fmin=250.0, fmax=1500.0, label="high-pitched pass", cover=0.15)):
+                   + detect_short(wide, p.c, win_s=80.0, step_s=10.0, max_tv=20.0, min_strength=1.3, log=log,
+                                  clips=clips, fmin=250.0, fmax=1500.0, label="high-pitched pass", cover=0.15,
+                                  min_d=150.0)):
             if all(abs(sf["tc"] - f["tc"]) > 20 for f in fits):
                 fits.append(sf)
         fits.sort(key=lambda f: f["tc"])

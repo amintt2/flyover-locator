@@ -147,7 +147,7 @@ def _drop_missing(t, f, inl, fit, c, share=0.5):
 
 
 def detect_short(spec, c=343.0, win_s=14.0, step_s=5.0, max_tv=4.0, min_strength=1.5, log=print, clips=None,
-                 fmin=None, fmax=None, label="fast pass", cover=0.5):
+                 fmin=None, fmax=None, label="fast pass", cover=0.5, min_d=80.0):
     """Close, fast passes (jets on approach, low flybys): the frequency drop lasts only
     d/v = 1-4 s and is often high pitched, with music or speech on top. Short windows are
     tracked in overlapping frequency bands so a louder sound elsewhere cannot hide the
@@ -174,7 +174,7 @@ def detect_short(spec, c=343.0, win_s=14.0, step_s=5.0, max_tv=4.0, min_strength
             ridges = _ridges(spec, windows, fa, fb, max_jump_hz=0.15 * fb * spec.hop, jump_cost=0.5, min_z=1.0,
                              pool=pool)
             for t0, t1 in windows:
-                fit = _short_fit(spec, c, t0, t1, ridges[float(t0)], max_tv, min_strength, cover)
+                fit = _short_fit(spec, c, t0, t1, ridges[float(t0)], max_tv, min_strength, cover, min_d)
                 if fit:
                     fit["clip"] = ci
                     found.append(fit)
@@ -190,7 +190,7 @@ def detect_short(spec, c=343.0, win_s=14.0, step_s=5.0, max_tv=4.0, min_strength
     return events
 
 
-def _short_fit(spec, c, t0, t1, ridge, max_tv, min_strength, cover=0.5):
+def _short_fit(spec, c, t0, t1, ridge, max_tv, min_strength, cover=0.5, min_d=80.0):
     t, f, w = ridge
     if len(t) < cover * (t1 - t0) / spec.hop:
         return None
@@ -201,7 +201,9 @@ def _short_fit(spec, c, t0, t1, ridge, max_tv, min_strength, cover=0.5):
         return None
     tc, v, d = fit["tc"], fit["v"], fit["d"]
     tv = d / max(v, 1e-6)
-    if not (t0 + 0.3 * (t1 - t0) <= tc <= t1 - 0.3 * (t1 - t0)) or not (25 <= v <= 300) or tv > max_tv or d < 80:
+    if not (t0 + 0.3 * (t1 - t0) <= tc <= t1 - 0.3 * (t1 - t0)) or not (25 <= v <= 300) or tv > max_tv or d < min_d:
+        return None
+    if d < 150 and v < 60:  # slow and very close: a boat or a vehicle, not an aircraft
         return None
     if fit["rms_hz"] > tol / 2:
         return None
