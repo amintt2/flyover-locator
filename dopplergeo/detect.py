@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from .audio import event_from_fit, fit_flyover, track_ridge
+from .audio import event_from_fit, fit_flyover, track_ridge, track_ridges
 
 
 def detect_flyovers(spec, c=343.0, fmin=50.0, fmax=300.0, win_s=110.0, step_s=20.0,
@@ -43,22 +43,35 @@ def _bands(fmin, fmax, width=2.5, step=1.6):
         a *= step
 
 
+def _ridges(spec, windows, fa, fb, **kw):
+    """Ridges for [(t0, t1)]: full-length windows in one batch, shorter ones singly."""
+    full = [t0 for t0, t1 in windows if t1 - t0 >= windows[0][1] - windows[0][0] - 1e-6]
+    out = track_ridges(spec, full, windows[0][1] - windows[0][0], fa, fb, **kw) if full else {}
+    kw.pop("pool", None)
+    for t0, t1 in windows:
+        if float(t0) not in out:
+            out[float(t0)] = track_ridge(spec, t0, t1, fa, fb, **kw)
+    return out
+
+
 def _scan(spec, c, ca, cb, clip, fmin, fmax, win_s, step_s, min_drop, max_rms, min_strength):
+    windows = [(t0, min(t0 + win_s, cb)) for t0 in np.arange(ca, max(cb - win_s, ca) + step_s, step_s)]
+    windows = [(t0, t1) for t0, t1 in windows if t1 - t0 >= 40]
     found = []
-    for t0 in np.arange(ca, max(cb - win_s, ca) + step_s, step_s):
-        t1 = min(t0 + win_s, cb)
-        if t1 - t0 < 40:
-            continue
-        for fa, fb in _bands(fmin, fmax):
-            fit = _fit_window(spec, c, t0, t1, fa, fb, ca, cb, min_drop, max_rms, min_strength)
+    if not windows:
+        return found
+    for fa, fb in _bands(fmin, fmax):
+        ridges = _ridges(spec, windows, fa, fb, min_z=1.0)
+        for t0, t1 in windows:
+            fit = _fit_window(spec, c, t0, t1, ridges[float(t0)], ca, cb, min_drop, max_rms, min_strength)
             if fit:
                 fit["clip"] = clip
                 found.append(fit)
     return found
 
 
-def _fit_window(spec, c, t0, t1, fmin, fmax, ca, cb, min_drop, max_rms, min_strength, min_d=150.0):
-    t, f, w = track_ridge(spec, t0, t1, fmin, fmax, min_z=1.0)
+def _fit_window(spec, c, t0, t1, ridge, ca, cb, min_drop, max_rms, min_strength, min_d=150.0):
+    t, f, w = ridge
     if len(t) < 0.35 * (t1 - t0) / spec.hop:
         return None
     try:
@@ -99,7 +112,7 @@ def _drop_missing(t, f, inl, fit, c):
     return mid.sum() < 0.5 * min(tv, 10.0) / max(np.median(np.diff(t)) if len(t) > 1 else 1.0, 1e-3)
 
 
-def detect_short(spec, c=343.0, win_s=14.0, step_s=3.0, max_tv=4.0, min_strength=1.5, log=print, clips=None):
+def detect_short(spec, c=343.0, win_s=14.0, step_s=5.0, max_tv=4.0, min_strength=1.5, log=print, clips=None):
     """Close, fast passes (jets on approach, low flybys): the frequency drop lasts only
     d/v = 1-4 s and is often high pitched, with music or speech on top. Short windows are
     tracked in overlapping frequency bands so a louder sound elsewhere cannot hide the
@@ -112,12 +125,18 @@ def detect_short(spec, c=343.0, win_s=14.0, step_s=3.0, max_tv=4.0, min_strength
         a *= 1.6
     found = []
     for ci, (ca, cb) in enumerate(clips or [(0.0, spec.duration)]):
-        for t0 in np.arange(ca, max(cb - win_s, ca) + step_s, step_s):
-            t1 = min(t0 + win_s, cb)
-            if t1 - t0 < 6:
-                continue
-            for fa, fb in bands:
-                fit = _short_fit(spec, c, t0, t1, fa, fb, max_tv, min_strength)
+        windows = [(t0, min(t0 + win_s, cb)) for t0 in np.arange(ca, max(cb - win_s, ca) + step_s, step_s)]
+        windows = [(t0, t1) for t0, t1 in windows if t1 - t0 >= 6]
+        if not windows:
+            continue
+        for fa, fb in bands:
+            # a 300 m/s pass at 100 m on a tone at the top of the band, per frame
+            # bins finer than ~0.4% of the frequency add cost, not information
+            pool = max(1, int(fa / 250 / spec.df))
+            ridges = _ridges(spec, windows, fa, fb, max_jump_hz=0.15 * fb * spec.hop, jump_cost=0.5, min_z=1.0,
+                             pool=pool)
+            for t0, t1 in windows:
+                fit = _short_fit(spec, c, t0, t1, ridges[float(t0)], max_tv, min_strength)
                 if fit:
                     fit["clip"] = ci
                     found.append(fit)
@@ -133,9 +152,8 @@ def detect_short(spec, c=343.0, win_s=14.0, step_s=3.0, max_tv=4.0, min_strength
     return events
 
 
-def _short_fit(spec, c, t0, t1, fa, fb, max_tv, min_strength):
-    # a 300 m/s pass at 100 m on a tone at the top of the band, per frame
-    t, f, w = track_ridge(spec, t0, t1, fa, fb, max_jump_hz=0.15 * fb * spec.hop, jump_cost=0.5, min_z=1.0)
+def _short_fit(spec, c, t0, t1, ridge, max_tv, min_strength):
+    t, f, w = ridge
     if len(t) < 0.5 * (t1 - t0) / spec.hop:
         return None
     tol = max(3.0, 0.006 * float(np.median(f)))

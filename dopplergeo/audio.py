@@ -184,6 +184,69 @@ def track_ridge(spec, t0, t1, fmin, fmax, max_jump_hz=1.5, jump_cost=0.5, min_z=
     return spec.times[ti][keep], f[keep], w[keep]
 
 
+def track_ridges(spec, t0s, win_s, fmin, fmax, max_jump_hz=1.5, jump_cost=0.5, min_z=0.5, chunk=48, pool=1):
+    """`track_ridge` on many equal-length windows at once: the same Viterbi, with the
+    windows stacked so each time step is one array operation for all of them.
+    pool: merge that many neighbouring frequency bins (max) where such fine
+    resolution is not needed (high bands); cost falls as pool squared.
+    Returns {t0: (t, f, weight)}; windows running past the end are left out."""
+    fi = np.where((spec.freqs >= fmin) & (spec.freqs <= fmax))[0]
+    fi = fi[: len(fi) // pool * pool]
+    z_all = spec.z[fi]
+    fr = spec.freqs[fi]
+    df = spec.df * pool
+    if pool > 1:
+        z_all = z_all.reshape(-1, pool, z_all.shape[1]).max(axis=1)
+        fr = fr.reshape(-1, pool).mean(axis=1)
+    F, n = z_all.shape
+    T = int(round(win_s / spec.hop)) + 1
+    J = max(1, int(round(max_jump_hz / df)))
+    offs = np.arange(-J, J + 1)
+    pen = (jump_cost * (offs / J) ** 2).astype(np.float32)
+    starts = np.searchsorted(spec.times, np.asarray(t0s, float) - 1e-9)
+    ok = starts + T <= n
+    out = {}
+    rows = np.arange(F)
+    for c in range(0, int(ok.sum()), chunk):
+        sel = np.where(ok)[0][c : c + chunk]
+        st = starts[sel]
+        Z = np.ascontiguousarray(np.moveaxis(z_all[:, st[:, None] + np.arange(T)], 1, 0))  # (B, F, T)
+        B = len(st)
+        score = Z[:, :, 0].copy()
+        back = np.empty((B, F, T), np.int16)
+        for k in range(1, T):
+            best = np.full((B, F), -np.inf, np.float32)
+            arg = np.zeros((B, F), np.int16)
+            for a, o in enumerate(offs):
+                sh = np.full((B, F), -np.inf, np.float32)
+                if o >= 0:
+                    sh[:, o:] = score[:, : F - o]
+                else:
+                    sh[:, :o] = score[:, -o:]
+                sh -= pen[a]
+                better = sh > best
+                best[better] = sh[better]
+                arg[better] = a
+            back[:, :, k] = rows[None, :] - offs[arg]
+            score = best + Z[:, :, k]
+        path = np.empty((B, T), np.int64)
+        path[:, -1] = score.argmax(axis=1)
+        bi = np.arange(B)
+        for k in range(T - 1, 0, -1):
+            path[:, k - 1] = back[bi, path[:, k], k]
+        kk = np.arange(T)[None, :]
+        w = Z[bi[:, None], path, kk]
+        p = np.clip(path, 1, F - 2)
+        za, zb, zc = Z[bi[:, None], p - 1, kk], Z[bi[:, None], p, kk], Z[bi[:, None], p + 1, kk]
+        den = za - 2 * zb + zc
+        delta = np.where(den < 0, 0.5 * (za - zc) / np.where(den == 0, 1, den), 0.0)
+        fq = fr[path] + np.clip(delta, -0.5, 0.5) * df
+        for j, s0 in enumerate(st):
+            keep = w[j] >= min_z
+            out[float(np.asarray(t0s, float)[sel[j]])] = (spec.times[s0 : s0 + T][keep], fq[j][keep], w[j][keep])
+    return out
+
+
 def fit_flyover(t, f, w=None, c=343.0, tol_hz=3.0):
     """Fit the straight-flight Doppler model to ridge points; `tol_hz` is the residual
     beyond which a point counts as an outlier (wider for high-pitched lines).
