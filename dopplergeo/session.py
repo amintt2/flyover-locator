@@ -15,7 +15,7 @@ import pandas as pd
 from .aircraft import is_propeller
 from .enf import correlate_reference
 from .geo import M_PER_DEG_LAT, m_per_deg_lon
-from .live import poll_adsb
+from .live import SharedPoller
 from .pipeline import SR, analyze_audio, locate
 from .search import SearchParams
 
@@ -46,7 +46,7 @@ class LiveSession:
         self.pcm = self.dir / "audio.pcm"
         self.pcm.touch()
         self.samples = 0
-        self.adsb_rows, self.grid_rows = [], []
+        self.grid_rows = []
         self.stop_evt = threading.Event()
         self.state = "recording"
         self.fits, self.enf, self.result, self.error = [], {}, None, None
@@ -56,9 +56,8 @@ class LiveSession:
         self.lock = threading.Lock()
         self.updated = time.time()
         nm = min(250, max(5, radius_km / 1.852))
-        for target, args in ((poll_adsb, (lat, lon, int(nm), self.stop_evt, self.adsb_rows, 3.0, self.log)),
-                             (poll_grid, (self.stop_evt, self.grid_rows))):
-            threading.Thread(target=target, args=args, daemon=True).start()
+        self.poller = SharedPoller.acquire(lat, lon, nm, log=self.log)
+        threading.Thread(target=poll_grid, args=(self.stop_evt, self.grid_rows), daemon=True).start()
         self.worker = threading.Thread(target=self._loop, daemon=True)
         self.worker.start()
 
@@ -77,6 +76,10 @@ class LiveSession:
             fh.write(data[: n * 2])
         self.samples += n
         self.updated = time.time()
+
+    @property
+    def adsb_rows(self):
+        return self.poller.rows
 
     def finish(self):
         if self.state == "recording":
@@ -129,6 +132,7 @@ class LiveSession:
                     self._analyze()
                     self.state = "done"
                     self.stop_evt.set()
+                    self.poller.release(self.log)
                     return
                 if self.samples - last >= 15 * SR:
                     last = self.samples

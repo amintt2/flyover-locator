@@ -12,6 +12,7 @@ import json
 import subprocess
 import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -27,7 +28,11 @@ FT = 0.3048
 
 
 def poll_adsb(lat, lon, nm, stop, rows, period=3.0, log=print):
+    """Poll the live API until `stop`; rows grow with (hex, t, lat, lon, alt_m, type).
+    When the API says to slow down (HTTP 429) the period doubles up to two minutes,
+    honouring Retry-After, and comes back down once requests succeed again."""
     url = API.format(lat=lat, lon=lon, nm=nm)
+    wait, last_log, failures = period, 0.0, 0
     while not stop.is_set():
         t0 = time.time()
         try:
@@ -43,9 +48,60 @@ def poll_adsb(lat, lon, nm, stop, rows, period=3.0, log=print):
                     continue
                 rows.append((a["hex"], now - float(a.get("seen_pos", 0)), a["lat"], a["lon"], alt * FT,
                              a.get("t") or ""))
+            if failures:
+                log(f"ADS-B back after {failures} failed request(s)")
+            failures, wait = 0, max(period, wait / 2)
         except Exception as e:
-            log(f"ADS-B poll failed: {e}")
-        stop.wait(max(0.0, period - (time.time() - t0)))
+            failures += 1
+            retry = 0.0
+            if isinstance(e, urllib.error.HTTPError) and e.code == 429:
+                try:
+                    retry = float(e.headers.get("Retry-After") or 0)
+                except ValueError:
+                    pass
+                wait = min(120.0, max(wait * 2, retry))
+            if time.time() - last_log > 60:
+                log(f"ADS-B poll failed ({e}); next try in {wait:.0f}s")
+                last_log = time.time()
+        stop.wait(max(0.0, wait - (time.time() - t0)))
+
+
+class SharedPoller:
+    """One poller per zone, however many recordings use it: several sessions on the
+    same area (a restart, two phones) must not multiply requests to the API."""
+
+    _lock = threading.Lock()
+    _all = {}
+
+    def __init__(self, key, lat, lon, nm, period, log):
+        self.key, self.rows, self.users, self.stop = key, [], 0, threading.Event()
+        self.logs = []
+        threading.Thread(target=poll_adsb, args=(lat, lon, nm, self.stop, self.rows, period, self._log),
+                         daemon=True).start()
+
+    def _log(self, msg):
+        for fn in list(self.logs):
+            fn(msg)
+
+    @classmethod
+    def acquire(cls, lat, lon, nm, log=print, period=5.0):
+        key = (round(lat, 2), round(lon, 2), int(nm))
+        with cls._lock:
+            p = cls._all.get(key)
+            if p is None:
+                p = cls._all[key] = SharedPoller(key, lat, lon, nm, period, log)
+            p.users += 1
+            p.logs.append(log)
+            return p
+
+    def release(self, log=None):
+        with SharedPoller._lock:
+            self.users -= 1
+            if log in self.logs:
+                self.logs.remove(log)
+            if self.users <= 0:
+                self.stop.set()
+                SharedPoller._all.pop(self.key, None)
 
 
 def record(url, seconds, path):
