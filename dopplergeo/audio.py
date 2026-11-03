@@ -1,6 +1,7 @@
 """Audio loading, band-limited high-resolution spectrograms, ridge tracking and
 flyover curve fitting."""
 
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -96,6 +97,24 @@ class Spectrogram:
         return out
 
 
+class Bands:
+    """Low band (propellers, mains hum) plus a wide band (jet whine, up to kHz) seen as one
+    spectrogram: `lookup` picks the band holding each frequency, the rest is the low band."""
+
+    def __init__(self, low, wide):
+        self.low, self.wide = low, wide
+
+    def __getattr__(self, name):
+        if name in ("low", "wide") or name.startswith("__"):
+            raise AttributeError(name)
+        return getattr(self.low, name)
+
+    def lookup(self, t, f):
+        f = np.broadcast_to(f, np.shape(t))
+        in_low = f <= self.low.freqs[-1]
+        return np.where(in_low, self.low.lookup(t, f), self.wide.lookup(t, f))
+
+
 def spectrogram(x, sr, fmin, fmax, win_s=1.0, hop_s=0.1, pad=4, smooth_hz=0.5, smooth_s=0.2):
     """STFT restricted to [fmin, fmax], computed in chunks so long recordings fit in memory.
 
@@ -165,8 +184,9 @@ def track_ridge(spec, t0, t1, fmin, fmax, max_jump_hz=1.5, jump_cost=0.5, min_z=
     return spec.times[ti][keep], f[keep], w[keep]
 
 
-def fit_flyover(t, f, w=None, c=343.0):
-    """Fit the straight-flight Doppler model to ridge points.
+def fit_flyover(t, f, w=None, c=343.0, tol_hz=3.0):
+    """Fit the straight-flight Doppler model to ridge points; `tol_hz` is the residual
+    beyond which a point counts as an outlier (wider for high-pitched lines).
 
     Returns dict with f0, v (m/s), d (slant CPA distance, m), tc (heard CPA time, s)
     and 1-sigma uncertainties.
@@ -193,7 +213,7 @@ def fit_flyover(t, f, w=None, c=343.0):
     for dscale in (0.5, 1.0, 2.0):
         start = x0.copy()
         start[2] = np.clip(start[2] * dscale, lb[2] + 1, ub[2] - 1)
-        r = least_squares(resid, start, bounds=(lb, ub), loss="soft_l1", f_scale=1.0)
+        r = least_squares(resid, start, bounds=(lb, ub), loss="soft_l1", f_scale=tol_hz / 3)
         if best is None or r.cost < best.cost:
             best = r
     p = best.x
@@ -205,7 +225,7 @@ def fit_flyover(t, f, w=None, c=343.0):
     except np.linalg.LinAlgError:
         sig = np.full(4, np.nan)
     res = straight_flyover(t, *p, c) - f
-    inl = np.abs(res) < 3.0
+    inl = np.abs(res) < tol_hz
     rms = float(np.sqrt(np.mean(res[inl] ** 2))) if inl.any() else float("inf")
     return {
         "f0": float(p[0]), "v": float(p[1]), "d": float(p[2]), "tc": float(p[3]),
@@ -228,6 +248,8 @@ def event_from_fit(fit, window, harmonics=(1,), v_lo=0.65, v_hi=1.6, d_lo=0.4, d
         "f0": round(fit["f0"], 2),
         "harmonics": list(harmonics),
         "window": [round(window[0], 1), round(window[1], 1)],
+        "clip": int(fit.get("clip", 0)),
+        "any_type": fit.get("band") == "wide",
     }
 
 
@@ -258,3 +280,25 @@ def plot_spectrogram(spec, path, t0=None, t1=None, fmin=None, fmax=None, curves=
     fig.tight_layout()
     fig.savefig(path, dpi=120)
     plt.close(fig)
+
+
+def detect_cuts(path, threshold=0.35, min_clip_s=20.0):
+    """Cut times (s) of an edited video, from abrupt picture changes (ffmpeg scene score).
+
+    Cuts closer than min_clip_s merge: a clip that short cannot hold a usable flyover.
+    Audio-only files return [].
+    """
+    cmd = ["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-an", "-sn",
+           "-vf", f"scale=160:-2,select='gt(scene,{threshold})',showinfo", "-f", "null", "-"]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    times = sorted(float(m) for m in re.findall(r"pts_time:([0-9.]+)", r.stderr))
+    cuts = []
+    for t in times:
+        if not cuts or t - cuts[-1] >= min_clip_s:
+            cuts.append(t)
+    return cuts
+
+
+def clips_from_cuts(cuts, duration):
+    bounds = [0.0] + [c for c in cuts if 0 < c < duration] + [duration]
+    return [(a, b) for a, b in zip(bounds[:-1], bounds[1:]) if b > a]

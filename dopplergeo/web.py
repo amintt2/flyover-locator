@@ -24,7 +24,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadF
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from .audio import media_start_time
+from .audio import detect_cuts, media_start_time
 from .dem import load_dem
 from .daysearch import day_events, search_days
 from .enf import DEFAULT_AREAS
@@ -154,11 +154,12 @@ def _find_day(job, a, info, zone, days, log):
     def on_day(done, total, r):
         _status(job, days={"done": done, "total": total, "last": r["day"]})
 
-    res, ranked = search_days(a.spec, events, usable, INDEX, area, _dem_cfg(), JOBS / job, log=log, on_day=on_day)
+    res, ranked = search_days(a.spec, events, usable, INDEX, area, _dem_cfg(), JOBS / job, log=log, on_day=on_day,
+                              clips=a.clips)
     if res is None and len(a.events) >= 2 and len(a.events) < len(events):
         log("no day matches every flyover; retrying with the strongest ones only")
         res, ranked = search_days(a.spec, a.events, usable, INDEX, area, _dem_cfg(), JOBS / job, log=log,
-                                  on_day=on_day)
+                                  on_day=on_day, clips=a.clips)
     if res is None:
         _status(job, state="done", stage="done", result={
             "top": [], "heat": [], "events": [], "days": ranked[:10],
@@ -173,7 +174,7 @@ def _find_day(job, a, info, zone, days, log):
     _status(job, state="done", stage="done", result=res)
 
 
-def _work(job, media, zone, start_unix, start_tol_s, use_meta, region, mode="locate", days=None):
+def _work(job, media, zone, start_unix, start_tol_s, use_meta, region, mode="locate", days=None, cuts=False):
     log = _log(job)
     try:
         _status(job, state="running", stage="audio")
@@ -181,10 +182,15 @@ def _work(job, media, zone, start_unix, start_tol_s, use_meta, region, mode="loc
         if meta and use_meta:
             log(f"time from video metadata: {dt.datetime.fromtimestamp(meta, dt.timezone.utc):%Y-%m-%d %H:%M:%S} UTC")
             start_unix, start_tol_s = meta, 180.0
-        a = analyze_audio(media, JOBS / job, log=log)
+        cut_times = None
+        if cuts:
+            log("looking for cuts in the video")
+            cut_times = detect_cuts(media)
+            log(f"  {len(cut_times)} cut(s) found" if cut_times else "  no cut found: treated as one continuous recording")
+        a = analyze_audio(media, JOBS / job, log=log, cuts=cut_times)
         info = {"fits": [{k: v for k, v in f.items() if k != "sigma"} for f in a.fits],
                 "enf": {k: a.enf[k] for k in ("nominal", "strength", "regions", "quality")},
-                "duration": a.spec.duration}
+                "duration": a.spec.duration, "clips": len(a.clips) if a.clips else 1}
         _status(job, audio=info, stage="audio_done")
         n = len(a.fits)
         if mode == "detect":
@@ -224,7 +230,8 @@ def _work(job, media, zone, start_unix, start_tol_s, use_meta, region, mode="loc
         if adsb.empty:
             raise RuntimeError("Aucune donnée d'avion dans cette zone à cette heure.")
         _status(job, stage="search")
-        p = SearchParams(start_window=(start_unix - start_tol_s, start_unix + start_tol_s), tile_deg=0.5)
+        p = SearchParams(start_window=(start_unix - start_tol_s, start_unix + start_tol_s), tile_deg=0.5,
+                         clips=a.clips)
         res = locate(a.spec, a.events, adsb, area, _dem(), JOBS / job, params=p, log=log)
         if area_info is None and res["top"]:
             lats = [t["lat"] for t in res["top"]]
@@ -259,7 +266,7 @@ def config():
 async def create_job(file: UploadFile | None = File(None), lat: str = Form(""), lon: str = Form(""),
                      radius_km: str = Form("30"), start: str = Form(""), start_tol_min: str = Form("30"),
                      use_metadata: str = Form("true"), region: str = Form("auto"), mode: str = Form("locate"),
-                     day_from: str = Form(""), day_to: str = Form(""), x_password: str | None = Header(None)):
+                     day_from: str = Form(""), day_to: str = Form(""), cuts: str = Form(""), x_password: str | None = Header(None)):
     _check(x_password)
     if file is None or not hasattr(file, "read"):
         raise HTTPException(400, "Le fichier n'est pas arrivé : réessaie (ou choisis-le depuis Fichiers plutôt que Photos).")
@@ -307,7 +314,8 @@ async def create_job(file: UploadFile | None = File(None), lat: str = Form(""), 
     _status(job, state="queued", stage="queued", mode="detect" if mode == "detect" else "locate",
             log=[f"uploaded {size / 1e6:.1f} MB"])
     pool.submit(_work, job, media, zone, start_unix, start_tol_min * 60, use_metadata, region,
-                "detect" if mode == "detect" else "locate", days)
+                "detect" if mode == "detect" else "locate", days,
+                str(cuts).strip().lower() in ("1", "true", "on", "auto"))
     return {"job": job}
 
 

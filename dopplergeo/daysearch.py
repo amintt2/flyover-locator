@@ -65,13 +65,13 @@ def _chunks(lat, lon, area, deg=CHUNK_DEG):
                    "lon_min": max(j * deg, area["lon_min"]), "lon_max": min((j + 1) * deg, area["lon_max"])}
 
 
-def _one_day(day, root, spec, events, area, dem_cfg, out_dir, bbox):
+def _one_day(day, root, spec, events, area, dem_cfg, out_dir, bbox, clips=None):
     t_start = time.time()
     events = [e if isinstance(e, Event) else Event.from_dict(e) for e in events]
     d0 = dt.datetime.combine(day, dt.time(), dt.timezone.utc).timestamp()
     out = Path(out_dir) / f"{day}"
     lines, best, n_flights = [], None, 0
-    p = SearchParams(start_window=(d0, d0 + DAY), tile_deg=0.5)
+    p = SearchParams(start_window=(d0, d0 + DAY), tile_deg=0.5, clips=clips)
     dem = load_dem(dem_cfg)
     day_df = load_day(root, day, bbox, (d0 - 600, d0 + DAY + spec.duration + 600), compact=True)
     lat, lon = day_df["lat"].to_numpy(), day_df["lon"].to_numpy()
@@ -111,7 +111,7 @@ def _canonical(df):
     return df
 
 
-def search_days(spec, events, days, root, area, dem_cfg, out_dir, log=print, workers=None, on_day=None):
+def search_days(spec, events, days, root, area, dem_cfg, out_dir, log=print, workers=None, on_day=None, clips=None):
     """Search each day; returns (best day's result or None, [{day, score, ...}] ranked)."""
     events = [e if isinstance(e, Event) else Event.from_dict(e) for e in events]
     bbox = (area["lat_min"] - BUF, area["lat_max"] + BUF, area["lon_min"] - BUF * 1.5, area["lon_max"] + BUF * 1.5)
@@ -120,7 +120,7 @@ def search_days(spec, events, days, root, area, dem_cfg, out_dir, log=print, wor
     log(f"searching {len(days)} day(s), {workers} at a time")
     ranked, done = [], 0
     with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn")) as ex:
-        futs = [ex.submit(_one_day, d, root, spec, events, area, dem_cfg, out_dir, bbox) for d in days]
+        futs = [ex.submit(_one_day, d, root, spec, events, area, dem_cfg, out_dir, bbox, clips) for d in days]
         for f in as_completed(futs):
             r = f.result()
             done += 1

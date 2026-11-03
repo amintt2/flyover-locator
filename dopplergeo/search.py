@@ -31,11 +31,14 @@ class Event:
     window: tuple  # recording span used for scoring (s)
     t_tol: float = 4.0
     harmonics: list = field(default_factory=lambda: [1])
+    clip: int = 0  # edited videos: events in different clips have no known time offset
+    any_type: bool = False  # fast high-pitched pass: jets too, not only propeller aircraft
 
     @classmethod
     def from_dict(cls, d):
         return cls(d["t_cpa"], tuple(d["v"]), tuple(d["d"]), d["f0"], tuple(d["window"]),
-                   d.get("t_tol", 4.0), list(d.get("harmonics", [1])))
+                   d.get("t_tol", 4.0), list(d.get("harmonics", [1])), int(d.get("clip", 0)),
+                   bool(d.get("any_type", False)))
 
 
 @dataclass
@@ -50,6 +53,8 @@ class SearchParams:
     silence_margin_s: float = 60.0
     silence_intervals: list | None = None  # recording-time [a, b]; None = auto
     start_window: tuple | None = None  # (unix_min, unix_max) of recording start
+    clips: list | None = None  # edited video: [(a, b), ...] continuous spans in recording time
+    clip_gap_s: float = 6 * 3600.0  # max real time between two clips of one video
     obs_height_m: float = 1.5
     geoid_offset_m: float = 0.0
     sweep_t: float = 4.0
@@ -137,17 +142,32 @@ def _crop(segs, lat0, lat1, lon0, lon1, t0=-np.inf, t1=np.inf):
     return out
 
 
+def anchors(events):
+    """Index of the first event of each event's clip: times are only comparable
+    inside one continuous clip, so every event is timed against its anchor."""
+    first = {}
+    return [first.setdefault(e.clip, k) for k, e in enumerate(events)]
+
+
 def silence_intervals(events, duration, p):
+    """Quiet spans [(a, b, anchor)] in recording time; each is timed from its clip's anchor
+    event. Clips with no heard flyover cannot be placed in time and are skipped."""
     if p.silence_intervals is not None:
-        return [tuple(x) for x in p.silence_intervals]
-    busy = sorted((e.t_cpa - p.silence_margin_s, e.t_cpa + p.silence_margin_s) for e in events)
-    out, cur = [], 0.0
-    for a, b in busy:
-        if a - cur >= 10:
-            out.append((cur, a))
-        cur = max(cur, b)
-    if duration - cur >= 10:
-        out.append((cur, duration))
+        return [(x[0], x[1], 0) for x in p.silence_intervals]
+    anc = anchors(events)
+    out = []
+    for k, (ca, cb) in enumerate(p.clips or [(0.0, duration)]):
+        inside = [i for i, e in enumerate(events) if ca <= e.t_cpa <= cb]
+        if not inside:
+            continue
+        busy = sorted((events[i].t_cpa - p.silence_margin_s, events[i].t_cpa + p.silence_margin_s) for i in inside)
+        cur = ca
+        for a, b in busy:
+            if a - cur >= 10:
+                out.append((cur, a, anc[inside[0]]))
+            cur = max(cur, b)
+        if cb - cur >= 10:
+            out.append((cur, cb, anc[inside[0]]))
     return out
 
 
@@ -168,11 +188,12 @@ def _tiles_touched(segs, td, ring=1):
 def _match_events(tree, gxyz, ev_segs, events, p, d_pad=0.0, t_pad=0.0, log=print, label=""):
     """Listener points hearing event 1, then event 2 at the right offset, ..."""
     e1 = events[0]
+    anc = anchors(events)
     P = []
     for e, segs_k in zip(events, ev_segs):
         tab = _passes_table(tree, gxyz, segs_k, e.d[1] + d_pad, p.c, max(0.0, e.d[0] - d_pad), e.v)
         if p.start_window:
-            tol = e.t_tol + t_pad
+            tol = e.t_tol + t_pad + (p.clip_gap_s if e.clip != e1.clip else 0.0)
             tab = tab[(tab["T"] >= p.start_window[0] + e.t_cpa - tol) & (tab["T"] <= p.start_window[1] + e.t_cpa + tol)]
         if tab.empty:
             return pd.DataFrame()
@@ -182,8 +203,14 @@ def _match_events(tree, gxyz, ev_segs, events, p, d_pad=0.0, t_pad=0.0, log=prin
         e = events[k]
         nxt = P[k].rename(columns={"sid": f"sid{k+1}", "T": f"T{k+1}", "r": f"r{k+1}", "v": f"v{k+1}"})
         cand = cand.merge(nxt, on="obs")
-        dt = cand[f"T{k+1}"] - cand["T1"] - (e.t_cpa - e1.t_cpa)
-        ok = dt.abs() <= (e1.t_tol + e.t_tol + 2 * t_pad)
+        a = anc[k]
+        if a == k:  # first flyover after a cut: same place, but the time between clips is unknown
+            dt = cand[f"T{k+1}"] - cand["T1"] - (e.t_cpa - e1.t_cpa)
+            ok = dt.abs() <= p.clip_gap_s
+        else:
+            ea = events[a]
+            dt = cand[f"T{k+1}"] - cand[f"T{a+1}"] - (e.t_cpa - ea.t_cpa)
+            ok = dt.abs() <= (ea.t_tol + e.t_tol + 2 * t_pad)
         for j in range(1, k + 1):
             ok &= ~((cand[f"sid{k+1}"] == cand[f"sid{j}"]) & ((cand[f"T{k+1}"] - cand[f"T{j}"]).abs() < 30))
         cand = cand[ok]
@@ -210,9 +237,11 @@ def coarse_search(segments, events, area, dem, duration, p, log=print):
     t_lo, t_hi = -np.inf, np.inf
     if p.start_window:
         t_lo, t_hi = p.start_window[0] - 120, p.start_window[1] + duration + 120
+        if p.clips and len(p.clips) > 1:
+            t_lo, t_hi = t_lo - p.clip_gap_s, t_hi + p.clip_gap_s
     segs_t = _crop(segments, area["lat_min"] - 1, area["lat_max"] + 1, area["lon_min"] - 1.5, area["lon_max"] + 1.5,
                    t_lo, t_hi)
-    ev_all = [[r for s in segs_t if s.prop for r in speed_runs(s, *e.v)] for e in events]
+    ev_all = [[r for s in segs_t if s.prop or e.any_type for r in speed_runs(s, *e.v)] for e in events]
     if not all(ev_all):
         return pd.DataFrame()
     td = p.tile_deg
@@ -266,8 +295,9 @@ def coarse_search(segments, events, area, dem, duration, p, log=print):
             tile = _crop(segs_t, *box)
             obs_u = np.unique(cand["obs"].to_numpy())
             sub_tree = cKDTree(gxyz[obs_u])
-            origin = cand["T1"] - e1.t_cpa
-            lo_t, hi_t = origin.min() + min(a for a, _ in sil) - 60, origin.max() + max(b for _, b in sil) + 60
+            origins = {an: cand[f"T{an+1}"] - events[an].t_cpa for an in {x[2] for x in sil}}
+            lo_t = min(origins[an].min() + a for a, _, an in sil) - 60
+            hi_t = max(origins[an].max() + b for _, b, an in sil) + 60
             quiet = _passes_table(sub_tree, gxyz[obs_u], _crop(tile, -90, 90, -180, 180, lo_t - 60, hi_t),
                                   r_sil, p.c)
             if not quiet.empty:
@@ -275,10 +305,10 @@ def coarse_search(segments, events, area, dem, duration, p, log=print):
                 c2 = cand.reset_index(drop=True)
                 c2["row"] = np.arange(len(c2))
                 m = c2.merge(quiet.rename(columns={"sid": "qsid", "T": "qT"})[["obs", "qsid", "qT"]], on="obs")
-                rel = m["qT"] - (m["T1"] - e1.t_cpa)
                 loud = np.zeros(len(m), bool)
-                for a, b in sil:
-                    loud |= (rel >= a + e1.t_tol) & (rel <= b - e1.t_tol)
+                for a, b, an in sil:
+                    rel = m["qT"] - (m[f"T{an+1}"] - events[an].t_cpa)
+                    loud |= (rel >= a + events[an].t_tol) & (rel <= b - events[an].t_tol)
                 for k in range(1, len(events) + 1):  # the matched passes themselves
                     loud &= ~((m["qsid"] == m[f"sid{k}"]) & ((m["qT"] - m[f"T{k}"]).abs() < 30))
                 bad = np.unique(m.loc[loud, "row"].to_numpy())
@@ -314,14 +344,17 @@ class Trajectory:
 def score_points(lat, lon, h, sids, events, spec, traj, p, origin_hint, refine=True):
     """Fine-score listener positions for one tuple of matched segments.
 
-    origin_hint: (min, max) of plausible recording-start times (unix s).
-    Returns DataFrame with total score, per-event scores, recording start and dt.
+    origin_hint: {anchor: (min, max)} of plausible clip-start times (unix s); anchor 0
+    is the recording start (see `anchors`).
+    Returns DataFrame with total score, per-event scores and origins, recording start and dt.
     """
     obs = ecef(lat, lon, h)
     e1 = events[0]
+    anc = anchors(events)
     models = []
-    for e, sid in zip(events, sids):
-        o0, o1 = origin_hint[0] - p.sweep_t - e1.t_tol, origin_hint[1] + p.sweep_t + e1.t_tol
+    for k, (e, sid) in enumerate(zip(events, sids)):
+        hint, ea = origin_hint[anc[k]], events[anc[k]]
+        o0, o1 = hint[0] - p.sweep_t - ea.t_tol, hint[1] + p.sweep_t + ea.t_tol
         tau, src = traj[sid].sample(o0 + e.window[0] - p.hear_radius_m / p.c - 5, o1 + e.window[1] + 5,
                                     p.tau_step)
         if tau is None:
@@ -331,19 +364,21 @@ def score_points(lat, lon, h, sids, events, spec, traj, p, origin_hint, refine=T
     def run(idx, dts, fs):
         o = obs[idx]
         curves = [heard_curves(tau, src, o, e.f0, p.c) for (tau, src), e in zip(models, events)]
-        # Recording origin from event 1's modelled delayed-CPA time.
-        t_arr1, _, r1 = curves[0]
-        j = r1.argmin(axis=1)
-        T1 = t_arr1[np.arange(len(o)), j]
+        # Each clip's origin from its anchor event's modelled delayed-CPA time.
+        Ta = {}
+        for a in set(anc):
+            t_arr_a, _, r_a = curves[a]
+            Ta[a] = t_arr_a[np.arange(len(o)), r_a.argmin(axis=1)]
         best = np.full(len(o), -np.inf)
         best_dt = np.zeros(len(o))
         best_each = np.zeros((len(o), len(events)))
+        best_org = np.zeros((len(o), len(events)))
         for dt in dts:
-            origin = T1 - (e1.t_cpa + dt)
+            org = np.stack([Ta[anc[k]] - (events[anc[k]].t_cpa + dt) for k in range(len(events))], axis=1)
             tot = np.zeros(len(o))
             each = np.zeros((len(o), len(events)))
             for k, ((t_arr, f, _), e) in enumerate(zip(curves, events)):
-                t_rec = t_arr - origin[:, None]
+                t_rec = t_arr - org[:, k, None]
                 inwin = (t_rec >= e.window[0]) & (t_rec <= e.window[1])
                 w = np.gradient(t_arr, axis=1) * inwin
                 wsum = np.maximum(w.sum(axis=1), 1e-9)
@@ -354,14 +389,14 @@ def score_points(lat, lon, h, sids, events, spec, traj, p, origin_hint, refine=T
                 each[:, k] = sk
                 tot += sk
             better = tot > best
-            best[better], best_dt[better], best_each[better] = tot[better], dt, each[better]
-        return best, best_dt, best_each, T1 - (e1.t_cpa + best_dt)
+            best[better], best_dt[better], best_each[better], best_org[better] = tot[better], dt, each[better], org[better]
+        return best, best_dt, best_each, best_org
 
     def grid(sweep, step):
         return np.arange(-sweep, sweep + step / 2, step)
 
     n = len(obs)
-    tot, dt, each, origin = np.zeros(n), np.zeros(n), np.zeros((n, len(events))), np.zeros(n)
+    tot, dt, each, origin = np.zeros(n), np.zeros(n), np.zeros((n, len(events))), np.zeros((n, len(events)))
     bs = 256
     coarse_dts, coarse_fs = grid(p.sweep_t, max(1.0, p.step_t)), 1 + grid(p.sweep_f, max(0.01, p.step_f))
     for b in range(0, n, bs):
@@ -373,9 +408,10 @@ def score_points(lat, lon, h, sids, events, spec, traj, p, origin_hint, refine=T
         for b in range(0, len(top), bs):
             idx = top[b : b + bs]
             tot[idx], dt[idx], each[idx], origin[idx] = run(idx, fine_dts, fine_fs)
-    df = pd.DataFrame({"lat": lat, "lon": lon, "elev": h, "score": tot, "dt": dt, "rec_start": origin})
+    df = pd.DataFrame({"lat": lat, "lon": lon, "elev": h, "score": tot, "dt": dt, "rec_start": origin[:, 0]})
     for k in range(len(events)):
         df[f"score{k+1}"] = each[:, k]
+        df[f"origin{k+1}"] = origin[:, k]
     return df
 
 
@@ -400,8 +436,11 @@ def fine_search(cands, segments, events, spec, dem, p, log=print):
                         axis=0, return_index=True)[1]
         la, lo = la[key], lo[key]
         h = dem(la, lo) + p.geoid_offset_m + p.obs_height_m
-        origin = g["T1"] - events[0].t_cpa
-        df = score_points(la, lo, h, sids, events, spec, traj, p, (origin.min(), origin.max()))
+        hints = {}
+        for a in set(anchors(events)):
+            o = g[f"T{a+1}"] - events[a].t_cpa
+            hints[a] = (o.min(), o.max())
+        df = score_points(la, lo, h, sids, events, spec, traj, p, hints)
         if df is None:
             continue
         for k, sid in enumerate(sids):

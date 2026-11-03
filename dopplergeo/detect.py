@@ -6,46 +6,19 @@ from .audio import event_from_fit, fit_flyover, track_ridge
 
 
 def detect_flyovers(spec, c=343.0, fmin=50.0, fmax=300.0, win_s=110.0, step_s=20.0,
-                    min_drop=0.06, max_rms=1.5, min_strength=1.5, log=print):
+                    min_drop=0.06, max_rms=1.5, min_strength=1.5, log=print, clips=None):
     """Scan the recording with overlapping windows, track the strongest line in
     each, and keep windows whose ridge fits a flyover Doppler curve.
 
-    Returns a list of dicts (fit + 'strength' + 'window'), strongest first,
+    clips: continuous spans [(a, b)] of an edited video; windows never cross a cut
+    and each fit records its clip index.
+
+    Returns a list of dicts (fit + 'strength' + 'window' + 'clip'), strongest first,
     de-duplicated so each flyover appears once.
     """
     found = []
-    t_end = spec.duration
-    starts = np.arange(0.0, max(t_end - win_s, 0.0) + step_s, step_s)
-    for t0 in starts:
-        t1 = min(t0 + win_s, t_end)
-        if t1 - t0 < 40:
-            continue
-        t, f, w = track_ridge(spec, t0, t1, fmin, fmax, min_z=1.0)
-        if len(t) < 0.35 * (t1 - t0) / spec.hop:
-            continue
-        try:
-            fit = fit_flyover(t, f, w, c)
-        except (ValueError, np.linalg.LinAlgError):
-            continue
-        drop = 2 * fit["v"] / c
-        tc = fit["tc"]
-        if not (t0 + 0.2 * (t1 - t0) <= tc <= t1 - 0.2 * (t1 - t0)):
-            continue
-        if fit["rms_hz"] > max_rms or drop < min_drop or not (15 <= fit["v"] <= 160):
-            continue
-        inl = fit.pop("inliers")
-        near = (np.abs(t - tc) < 30) & inl
-        # the curve must be followed continuously around the CPA, not just touched
-        if near.sum() < 0.6 * 60 / spec.hop:
-            continue
-        strength = float(np.median(w[near]))
-        if strength < min_strength:
-            continue
-        span = t[inl & (w > 1.5)]
-        win = (max(tc - 60, float(span.min()) if span.size else tc - 40, 0.0),
-               min(tc + 60, float(span.max()) if span.size else tc + 40, t_end))
-        fit.update(strength=strength, window=win)
-        found.append(fit)
+    for ci, (ca, cb) in enumerate(clips or [(0.0, spec.duration)]):
+        found += _scan(spec, c, ca, cb, ci, fmin, fmax, win_s, step_s, min_drop, max_rms, min_strength)
     found.sort(key=lambda x: -x["strength"])
     events = []
     for fit in found:
@@ -54,8 +27,145 @@ def detect_flyovers(spec, c=343.0, fmin=50.0, fmax=300.0, win_s=110.0, step_s=20
     events.sort(key=lambda x: x["tc"])
     for e in events:
         log(f"  flyover at {e['tc']:.1f}s: f0={e['f0']:.1f}Hz v={e['v']:.0f}m/s d={e['d']:.0f}m "
-            f"rms={e['rms_hz']:.2f}Hz strength={e['strength']:.1f}")
+            f"rms={e['rms_hz']:.2f}Hz strength={e['strength']:.1f}" + (f" clip {e['clip'] + 1}" if clips else ""))
     return events
+
+
+def _bands(fmin, fmax, width=2.5, step=1.6):
+    """Overlapping bands, each wide enough for a full Doppler drop, so the loudest
+    line elsewhere (a motor, a road, music) cannot pull the tracker away."""
+    out, a = [], fmin
+    while True:
+        b = min(a * width, fmax)
+        out.append((a, b))
+        if b >= fmax:
+            return out
+        a *= step
+
+
+def _scan(spec, c, ca, cb, clip, fmin, fmax, win_s, step_s, min_drop, max_rms, min_strength):
+    found = []
+    for t0 in np.arange(ca, max(cb - win_s, ca) + step_s, step_s):
+        t1 = min(t0 + win_s, cb)
+        if t1 - t0 < 40:
+            continue
+        for fa, fb in _bands(fmin, fmax):
+            fit = _fit_window(spec, c, t0, t1, fa, fb, ca, cb, min_drop, max_rms, min_strength)
+            if fit:
+                fit["clip"] = clip
+                found.append(fit)
+    return found
+
+
+def _fit_window(spec, c, t0, t1, fmin, fmax, ca, cb, min_drop, max_rms, min_strength, min_d=150.0):
+    t, f, w = track_ridge(spec, t0, t1, fmin, fmax, min_z=1.0)
+    if len(t) < 0.35 * (t1 - t0) / spec.hop:
+        return None
+    try:
+        fit = fit_flyover(t, f, w, c)
+    except (ValueError, np.linalg.LinAlgError):
+        return None
+    drop = 2 * fit["v"] / c
+    tc = fit["tc"]
+    if not (t0 + 0.2 * (t1 - t0) <= tc <= t1 - 0.2 * (t1 - t0)):
+        return None
+    # an aircraft does not pass within a few tens of metres: those are steps
+    # (a motor switching speed) or road traffic
+    if fit["rms_hz"] > max_rms or drop < min_drop or not (15 <= fit["v"] <= 160) or fit["d"] < min_d:
+        return None
+    inl = fit.pop("inliers")
+    near = (np.abs(t - tc) < 30) & inl
+    # the curve must be followed continuously around the CPA, not just touched
+    if near.sum() < 0.6 * 60 / spec.hop:
+        return None
+    if _drop_missing(t, f, inl, fit, c):
+        return None
+    strength = float(np.median(w[near]))
+    if strength < min_strength:
+        return None
+    span = t[inl & (w > 1.5)]
+    win = (max(tc - 60, float(span.min()) if span.size else tc - 40, ca),
+           min(tc + 60, float(span.max()) if span.size else tc + 40, cb))
+    fit.update(strength=strength, window=win)
+    return fit
+
+
+def _drop_missing(t, f, inl, fit, c):
+    """True when nothing was tracked through the middle of the drop (a jump, not a curve)."""
+    f0, v = fit["f0"], fit["v"]
+    hi, lo = f0 / (1 - v / c), f0 / (1 + v / c)
+    mid = inl & (f > lo + 0.3 * (hi - lo)) & (f < hi - 0.3 * (hi - lo))
+    tv = fit["d"] / max(v, 1e-6)
+    return mid.sum() < 0.5 * min(tv, 10.0) / max(np.median(np.diff(t)) if len(t) > 1 else 1.0, 1e-3)
+
+
+def detect_short(spec, c=343.0, win_s=14.0, step_s=3.0, max_tv=4.0, min_strength=1.5, log=print, clips=None):
+    """Close, fast passes (jets on approach, low flybys): the frequency drop lasts only
+    d/v = 1-4 s and is often high pitched, with music or speech on top. Short windows are
+    tracked in overlapping frequency bands so a louder sound elsewhere cannot hide the
+    line, and a fit is kept only if it follows the Doppler S curve through its drop.
+    `spec` is a wide-band spectrogram (short frames)."""
+    lo_f, hi_f = float(spec.freqs[0]), float(spec.freqs[-1])
+    bands, a = [], lo_f
+    while a < hi_f:
+        bands.append((a, min(a * 2.5, hi_f)))
+        a *= 1.6
+    found = []
+    for ci, (ca, cb) in enumerate(clips or [(0.0, spec.duration)]):
+        for t0 in np.arange(ca, max(cb - win_s, ca) + step_s, step_s):
+            t1 = min(t0 + win_s, cb)
+            if t1 - t0 < 6:
+                continue
+            for fa, fb in bands:
+                fit = _short_fit(spec, c, t0, t1, fa, fb, max_tv, min_strength)
+                if fit:
+                    fit["clip"] = ci
+                    found.append(fit)
+    found.sort(key=lambda x: -x["strength"])
+    events = []
+    for fit in found:
+        if all(abs(fit["tc"] - e["tc"]) > 10 for e in events):
+            events.append(fit)
+    events.sort(key=lambda x: x["tc"])
+    for e in events:
+        log(f"  fast pass at {e['tc']:.1f}s: f0={e['f0']:.0f}Hz v={e['v']:.0f}m/s d={e['d']:.0f}m "
+            f"drop {e['d'] / e['v']:.1f}s strength={e['strength']:.1f}")
+    return events
+
+
+def _short_fit(spec, c, t0, t1, fa, fb, max_tv, min_strength):
+    # a 300 m/s pass at 100 m on a tone at the top of the band, per frame
+    t, f, w = track_ridge(spec, t0, t1, fa, fb, max_jump_hz=0.15 * fb * spec.hop, jump_cost=0.5, min_z=1.0)
+    if len(t) < 0.5 * (t1 - t0) / spec.hop:
+        return None
+    tol = max(3.0, 0.006 * float(np.median(f)))
+    try:
+        fit = fit_flyover(t, f, w, c, tol_hz=tol)
+    except (ValueError, np.linalg.LinAlgError):
+        return None
+    tc, v, d = fit["tc"], fit["v"], fit["d"]
+    tv = d / max(v, 1e-6)
+    if not (t0 + 0.3 * (t1 - t0) <= tc <= t1 - 0.3 * (t1 - t0)) or not (25 <= v <= 300) or tv > max_tv or d < 80:
+        return None
+    if fit["rms_hz"] > tol / 2:
+        return None
+    inl = fit.pop("inliers")
+    if _drop_missing(t, f, inl, fit, c):
+        return None
+    # the drop itself must be followed, and most of the modelled shift seen in the data
+    half = max(1.0, 2 * tv)
+    near = (np.abs(t - tc) < half) & inl
+    if near.sum() < 0.6 * 2 * half / spec.hop:
+        return None
+    seen = np.percentile(f[inl], 95) - np.percentile(f[inl], 5)
+    if seen < 0.5 * fit["f0"] * 2 * v / c:
+        return None
+    strength = float(np.median(w[near]))
+    if strength < min_strength:
+        return None
+    span = max(6.0, min(20.0, 4 * tv))
+    fit.update(strength=strength, window=(max(tc - span, t0 - 6), min(tc + span, t1 + 6)), band="wide")
+    return fit
 
 
 def events_for_search(fits, max_events=3, min_ratio=0.6):
