@@ -190,7 +190,10 @@ class Segment:
     speed: np.ndarray  # 3D speed m/s
 
     def bbox(self):
-        return self.lat.min(), self.lat.max(), self.lon.min(), self.lon.max()
+        bb = self.__dict__.get("_bb")  # searched tens of millions of times per day: compute once
+        if bb is None:
+            bb = self._bb = (float(self.lat.min()), float(self.lat.max()), float(self.lon.min()), float(self.lon.max()))
+        return bb
 
     def sub(self, mask, min_len=5):
         """Contiguous runs of `mask` as views (same sid)."""
