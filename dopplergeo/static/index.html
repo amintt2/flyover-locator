@@ -1436,7 +1436,7 @@ async function startLive() {
     t.onunmute = () => banner('mute', null);
   });
   Object.assign(L_, { firstMs: 0, pending: [], inflight: false, failures: 0, uploaded: 0, stopping: false, creating: false,
-    seenFits: new Set(), resultKey: '', serverState: '', lastStatus: null, prevPos: new Map(), wasHidden: false });
+    enf: null, seenFits: new Set(), resultKey: '', serverState: '', lastStatus: null, prevPos: new Map(), wasHidden: false });
   live.sid = null; live.result = null; live.lastZoom = map.getZoom(); mapState.live = { tops: [], heat: [], aircraft: [] };
   requestWake();
   resetStartBtn();
@@ -1603,6 +1603,16 @@ function bearing(a, b) {
   const y = Math.sin(dl) * Math.cos(la2), x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dl);
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
+// Live blocks are rewritten only when their content changes: a rewrite every poll
+// restarts animations and jumps the page after a detection.
+function setHTML(el, html) { if (el && el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; } }
+function othersList(others) {
+  if (!others || !others.length) return '';
+  const ic = { car: '🚗', truck: '🚌', boat: '⛴️', train: '🚆' };
+  return `<div class="tiny muted" style="margin:10px 0 4px">Autres bruits détectés (pas des avions, type deviné)</div>
+    <ul class="fly-list">${[...others].sort((a, b) => a.tc - b.tc).map(o => `<li><span class="tm">${fmtTime(o.tc)}</span>
+      <span class="v"><b>${ic[o.kind] || '•'} ${esc(o.label || o.kind)}</b> · ~${kmh(o.v)} km/h, à ~${fmtDist(o.d)}<span class="muted tiny"> · ${Math.round(o.f0)} Hz</span></span></li>`).join('')}</ul>`;
+}
 function renderLiveStatus(st) {
   if (st.state !== 'recording') {
     $('lTimer').textContent = fmtTime(st.duration);
@@ -1637,14 +1647,14 @@ function renderLiveStatus(st) {
     const key = JSON.stringify([(res.top || []).slice(0, 3).map(t => [t.lat, t.lon]), (res.events || []).length]);
     live.result = res;
     mapState.live.tops = res.top.slice(0, 5); mapState.live.heat = res.heat || [];
-    $('lResult').innerHTML = resultHtml(res, { live: true, compact: true, state: st.state });
+    setHTML($('lResult'), resultHtml(res, { live: true, compact: true, state: st.state }));
     if (key !== L_.resultKey) {
       const first = !L_.resultKey;
       L_.resultKey = key;
       if (mode === 'live') { fitResult(res, true); toast(first ? 'Première zone candidate trouvée' : 'La zone se resserre', 'ok'); }
     }
   } else if (st.error) {
-    $('lResult').innerHTML = `<div class="banner err">${svgIc.warn}<span>${esc(st.error)}</span></div>`;
+    setHTML($('lResult'), `<div class="banner err">${svgIc.warn}<span>${esc(st.error)}</span></div>`);
   }
   // log
   $('lLog').textContent = [`avions vus : ${st.aircraft_seen ?? 0} (typés : ${st.typed_aircraft ?? 0}) · fréquence réseau : ${st.grid_samples ?? 0} mesures`, ...(st.log || [])].join('\n');
@@ -1654,8 +1664,8 @@ function renderLiveFits(fits, st) {
   if (!fits.length) {
     const dur = st ? st.duration : 0;
     const sub = !st ? 'Démarrage…' : dur < 40 ? `Première analyse après 40 s (${fmtTime(dur)} reçues)` : `Analyse toutes les ~15 s · ${fmtTime(dur)} écoutées`;
-    $('lFits').innerHTML = `<div class="waiting"><span class="radar"></span><div><b style="color:var(--text);font-weight:600">Aucun avion entendu pour l'instant</b><div class="tiny">${sub}</div></div></div>
-      <div class="hint">Il faut au moins un avion à hélice qui passe à moins de ~3 km. Les jets ne servent pas.</div>`;
+    setHTML($('lFits'), `<div class="waiting"><span class="radar"></span><div><b style="color:var(--text);font-weight:600">Aucun avion entendu pour l'instant</b><div class="tiny">${sub}</div></div></div>
+      <div class="hint">Il faut un avion qui passe à moins de ~3 km (hélice, ou jet bas et proche).</div>` + othersList(st && st.others));
     return;
   }
   const newSet = new Set();
@@ -1663,13 +1673,16 @@ function renderLiveFits(fits, st) {
   if (newSet.size && L_.seenFits.size > newSet.size || (newSet.size && fits.length === newSet.size && st && st.state === 'recording')) {
     if (navigator.vibrate) try { navigator.vibrate(60); } catch {}
   }
-  $('lFits').innerHTML = fitsList(fits, st && st.t0, newSet) +
-    (st && st.state !== 'done' && !(st.result && st.result.top && st.result.top.length) ? `<div class="hint">Recherche des trajectoires qui collent… ça peut prendre un peu de temps.</div>` : '');
+  setHTML($('lFits'), fitsList(fits, st && st.t0, newSet) +
+    (st && st.state !== 'done' && !(st.result && st.result.top && st.result.top.length) ? `<div class="hint">Recherche des trajectoires qui collent… ça peut prendre un peu de temps.</div>` : '') +
+    othersList(st && st.others));
 }
 function renderLiveEnf(enf) {
+  // once the mains hum is found, keep it: a later analysis missing it must not flip the card back
+  if (enf.nominal) L_.enf = enf; else if (L_.enf) enf = L_.enf;
   if (enf.nominal === undefined) {
-    $('lEnf').innerHTML = `<div class="fact"><span class="fact-ic">${svgIc.bolt}</span><div class="fact-b">Bourdonnement secteur<span class="s">Analyse en attente…</span></div></div>`;
-  } else $('lEnf').innerHTML = enfFact(enf);
+    setHTML($('lEnf'), `<div class="fact"><span class="fact-ic">${svgIc.bolt}</span><div class="fact-b">Bourdonnement secteur<span class="s">Analyse en attente…</span></div></div>`);
+  } else setHTML($('lEnf'), enfFact({ ...enf, strength: enf.strength && Math.round(enf.strength) }));
 }
 function finishLive(st) {
   if (live.view !== 'live-rec') return;

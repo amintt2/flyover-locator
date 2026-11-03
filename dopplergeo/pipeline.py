@@ -31,6 +31,7 @@ class AudioAnalysis:
     events: list
     enf: dict
     clips: list | None = None  # edited video: continuous spans in recording time
+    others: list | None = None  # vehicles, boats... heard but not aircraft
 
 
 def analyze_audio(source, out_dir=None, p=None, log=print, plots=True, sr=SR, cuts=None):
@@ -55,7 +56,8 @@ def analyze_audio(source, out_dir=None, p=None, log=print, plots=True, sr=SR, cu
     clips = clips_from_cuts(cuts, spec.duration) if cuts else None
     if clips:
         log(f"  {len(clips)} clips separated by cuts at " + ", ".join(f"{c:.0f}s" for c in cuts))
-    fits = detect_flyovers(spec, p.c, log=log, clips=clips)
+    others = []
+    fits = detect_flyovers(spec, p.c, log=log, clips=clips, others=others)
     wide = None
     if xw is not None:
         long_ = len(xw) / srw > 1800  # keep memory bounded on long recordings
@@ -83,7 +85,7 @@ def analyze_audio(source, out_dir=None, p=None, log=print, plots=True, sr=SR, cu
             wc = [c_ for c_, f in zip(curves, fits) if f.get("band") == "wide"]
             plot_spectrogram(wide, out / "flyovers_fast.png", curves=wc,
                              title=f"{len(wc)} fast pass(es) detected")
-    return AudioAnalysis(spec, fits, events, enf, clips)
+    return AudioAnalysis(spec, fits, events, enf, clips, others)
 
 
 def locate(spec, events, adsb_df, area, dem, out_dir, params=None, log=print, plots=True):

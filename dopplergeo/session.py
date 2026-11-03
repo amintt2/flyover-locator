@@ -50,6 +50,7 @@ class LiveSession:
         self.stop_evt = threading.Event()
         self.state = "recording"
         self.fits, self.enf, self.result, self.error = [], {}, None, None
+        self.others = []
         self.searched_events = None
         self.log_lines, self.log_cap = [], log_cap
         self.dem_factory = dem_factory
@@ -101,6 +102,7 @@ class LiveSession:
             return
         a = analyze_audio((x, SR), self.dir, log=lambda m: None)
         self.fits = [{k: v for k, v in f.items() if k not in ("sigma",)} for f in a.fits]
+        self.others = [{k: f[k] for k in ("tc", "f0", "v", "d", "kind", "label", "strength")} for f in a.others or []]
         self.enf = {k: a.enf[k] for k in ("nominal", "strength", "regions", "quality")}
         if a.enf["nominal"] == 50 and self.grid_rows:
             g = np.array(self.grid_rows)
@@ -161,5 +163,5 @@ class LiveSession:
             "area": {"lat": self.lat, "lon": self.lon, "radius_km": self.radius_km},
             "aircraft_seen": len({r[0] for r in self.adsb_rows}), "typed_aircraft": len(props),
             "grid_samples": len(self.grid_rows),
-            "fits": self.fits, "enf": self.enf, "result": self.result, "error": self.error, "log": log,
+            "fits": self.fits, "others": self.others, "enf": self.enf, "result": self.result, "error": self.error, "log": log,
         }

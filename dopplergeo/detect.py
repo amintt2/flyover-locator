@@ -5,13 +5,19 @@ import numpy as np
 from .audio import event_from_fit, fit_flyover, track_ridge, track_ridges
 
 
+GROUND = {"car": "voiture / moto", "truck": "camion / bus", "boat": "bateau", "train": "train ?"}
+
+
 def detect_flyovers(spec, c=343.0, fmin=50.0, fmax=300.0, win_s=110.0, step_s=20.0,
-                    min_drop=0.06, max_rms=1.5, min_strength=1.5, log=print, clips=None):
+                    min_drop=0.06, max_rms=1.5, min_strength=1.5, log=print, clips=None, others=None):
     """Scan the recording with overlapping windows, track the strongest line in
     each, and keep windows whose ridge fits a flyover Doppler curve.
 
     clips: continuous spans [(a, b)] of an edited video; windows never cross a cut
     and each fit records its clip index.
+
+    others: optional list that receives the Doppler passes no aircraft could make
+    (too close or too slow), each with a guessed 'kind' and French 'label'.
 
     Returns a list of dicts (fit + 'strength' + 'window' + 'clip'), strongest first,
     de-duplicated so each flyover appears once.
@@ -19,12 +25,13 @@ def detect_flyovers(spec, c=343.0, fmin=50.0, fmax=300.0, win_s=110.0, step_s=20
     found = []
     for ci, (ca, cb) in enumerate(clips or [(0.0, spec.duration)]):
         found += _scan(spec, c, ca, cb, ci, fmin, fmax, win_s, step_s, min_drop, max_rms, min_strength)
-    found.sort(key=lambda x: -x["strength"])
-    events = []
-    for fit in found:
-        if all(abs(fit["tc"] - e["tc"]) > 40 for e in events):
-            events.append(fit)
-    events.sort(key=lambda x: x["tc"])
+    events = _dedupe([f for f in found if f["kind"] == "aircraft"], 40)
+    if others is not None:
+        ground = [f for f in found if f["kind"] != "aircraft"
+                  and all(abs(f["tc"] - e["tc"]) > 20 for e in events)]
+        for g in _dedupe(ground, 20):
+            g["label"] = GROUND[g["kind"]]
+            others.append(g)
     for e in events:
         log(f"  flyover at {e['tc']:.1f}s: f0={e['f0']:.1f}Hz v={e['v']:.0f}m/s d={e['d']:.0f}m "
             f"rms={e['rms_hz']:.2f}Hz strength={e['strength']:.1f}" + (f" clip {e['clip'] + 1}" if clips else ""))
@@ -70,6 +77,28 @@ def _scan(spec, c, ca, cb, clip, fmin, fmax, win_s, step_s, min_drop, max_rms, m
     return found
 
 
+def _dedupe(found, gap):
+    """Strongest first, one per pass, then in time order."""
+    kept = []
+    for fit in sorted(found, key=lambda x: -x["strength"]):
+        if all(abs(fit["tc"] - e["tc"]) > gap for e in kept):
+            kept.append(fit)
+    return sorted(kept, key=lambda x: x["tc"])
+
+
+def _ground_kind(fit):
+    """A Doppler pass no aircraft could make, guessed from speed and engine tone:
+    boats are slow, heavy diesels (trucks, buses) have a low tone. A guess, not a fact."""
+    v, d = fit["v"], fit["d"]
+    if v < 1.5 or d > 600 or 2 * v / 343.0 < 0.015:
+        return None
+    if v < 9:
+        return "boat"
+    if v <= 45:
+        return "truck" if fit["f0"] < 80 else "car"
+    return "train"
+
+
 def _fit_window(spec, c, t0, t1, ridge, ca, cb, min_drop, max_rms, min_strength, min_d=150.0):
     t, f, w = ridge
     if len(t) < 0.35 * (t1 - t0) / spec.hop:
@@ -82,10 +111,15 @@ def _fit_window(spec, c, t0, t1, ridge, ca, cb, min_drop, max_rms, min_strength,
     tc = fit["tc"]
     if not (t0 + 0.2 * (t1 - t0) <= tc <= t1 - 0.2 * (t1 - t0)):
         return None
-    # an aircraft does not pass within a few tens of metres: those are steps
-    # (a motor switching speed) or road traffic
-    if fit["rms_hz"] > max_rms or drop < min_drop or not (15 <= fit["v"] <= 160) or fit["d"] < min_d:
+    if fit["rms_hz"] > max_rms:
         return None
+    # an aircraft does not pass within a few tens of metres or crawl: those are road
+    # traffic, boats or trains, kept apart as "other sounds"
+    kind = "aircraft"
+    if drop < min_drop or not (25 <= fit["v"] <= 160) or fit["d"] < min_d:
+        kind = _ground_kind(fit)
+        if kind is None:
+            return None
     inl = fit.pop("inliers")
     near = (np.abs(t - tc) < 30) & inl
     # the curve must be followed continuously around the CPA, not just touched
@@ -99,7 +133,7 @@ def _fit_window(spec, c, t0, t1, ridge, ca, cb, min_drop, max_rms, min_strength,
     span = t[inl & (w > 1.5)]
     win = (max(tc - 60, float(span.min()) if span.size else tc - 40, ca),
            min(tc + 60, float(span.max()) if span.size else tc + 40, cb))
-    fit.update(strength=strength, window=win)
+    fit.update(strength=strength, window=win, kind=kind)
     return fit
 
 

@@ -189,6 +189,7 @@ def _work(job, media, zone, start_unix, start_tol_s, use_meta, region, mode="loc
             log(f"  {len(cut_times)} cut(s) found" if cut_times else "  no cut found: treated as one continuous recording")
         a = analyze_audio(media, JOBS / job, log=log, cuts=cut_times)
         info = {"fits": [{k: v for k, v in f.items() if k != "sigma"} for f in a.fits],
+                "others": [{k: f[k] for k in ("tc", "f0", "v", "d", "kind", "label", "strength")} for f in a.others or []],
                 "enf": {k: a.enf[k] for k in ("nominal", "strength", "regions", "quality")},
                 "duration": a.spec.duration, "clips": len(a.clips) if a.clips else 1}
         _status(job, audio=info, stage="audio_done")
