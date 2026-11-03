@@ -38,11 +38,12 @@ def poll_grid(stop, rows, period=1.0):
 
 
 class LiveSession:
-    def __init__(self, sid, directory, lat, lon, radius_km, t0, dem_factory, log_cap=200):
+    def __init__(self, sid, directory, lat, lon, radius_km, t0, dem_factory, log_cap=200, sr=SR):
         self.sid, self.dir = sid, Path(directory)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.lat, self.lon, self.radius_km = lat, lon, radius_km
         self.t0 = t0  # unix time of the first audio sample (server clock)
+        self.sr = sr  # 1000 Hz (propeller tones only) or 8000 Hz (jet whine too)
         self.pcm = self.dir / "audio.pcm"
         self.pcm.touch()
         self.samples = 0
@@ -70,7 +71,7 @@ class LiveSession:
         if self.state != "recording":
             return
         n = len(data) // 2
-        if self.samples + n > MAX_SECONDS * SR:
+        if self.samples + n > MAX_SECONDS * self.sr:
             self.finish()
             return
         with open(self.pcm, "ab") as fh:
@@ -88,7 +89,7 @@ class LiveSession:
 
     @property
     def duration(self):
-        return self.samples / SR
+        return self.samples / self.sr
 
     def _area(self):
         r = self.radius_km * 1000
@@ -98,9 +99,9 @@ class LiveSession:
 
     def _analyze(self):
         x = np.fromfile(self.pcm, "<i2").astype(np.float32) / 32768.0
-        if len(x) < SR * 40:
+        if len(x) < self.sr * 40:
             return
-        a = analyze_audio((x, SR), self.dir, log=lambda m: None)
+        a = analyze_audio((x, self.sr), self.dir, log=lambda m: None)
         self.fits = [{k: v for k, v in f.items() if k not in ("sigma",)} for f in a.fits]
         self.others = [{k: f[k] for k in ("tc", "f0", "v", "d", "kind", "label", "strength")} for f in a.others or []]
         self.enf = {k: a.enf[k] for k in ("nominal", "strength", "regions", "quality")}
@@ -136,7 +137,7 @@ class LiveSession:
                     self.stop_evt.set()
                     self.poller.release(self.log)
                     return
-                if self.samples - last >= 15 * SR:
+                if self.samples - last >= 15 * self.sr:
                     last = self.samples
                     self._analyze()
                 if time.time() - self.updated > 900:  # browser gone for good (iOS pauses the mic when locked)

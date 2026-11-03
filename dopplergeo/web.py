@@ -350,7 +350,8 @@ def _session(sid):
 
 @app.post("/api/live")
 async def live_start(request: Request, x_password: str | None = Header(None)):
-    """Body JSON: {lat, lon, radius_km, client_now_ms, audio_start_ms}."""
+    """Body JSON: {lat, lon, radius_km, client_now_ms, audio_start_ms, sample_rate (1000 or 8000)}.
+    8000 Hz keeps the whine of jets (up to 4 kHz); 1000 Hz only propeller tones."""
     _check(x_password)
     body = await request.json()
     lat, lon = float(body["lat"]), float(body["lon"])
@@ -362,14 +363,15 @@ async def live_start(request: Request, x_password: str | None = Header(None)):
             sessions.pop(k, None)
     if sum(s.state == "recording" for s in sessions.values()) >= 3:
         raise HTTPException(429, "trop d'enregistrements en cours")
+    sr = 8000 if int(body.get("sample_rate", 1000)) == 8000 else 1000
     sid = uuid.uuid4().hex[:12]
-    sessions[sid] = LiveSession(sid, LIVE / sid, lat, lon, radius, t0, _dem)
-    return {"session": sid, "sample_rate": 1000, "clock_offset_s": offset}
+    sessions[sid] = LiveSession(sid, LIVE / sid, lat, lon, radius, t0, _dem, sr=sr)
+    return {"session": sid, "sample_rate": sr, "clock_offset_s": offset}
 
 
 @app.post("/api/live/{sid}/audio")
 async def live_audio(sid: str, request: Request, x_password: str | None = Header(None)):
-    """Body: raw little-endian int16 mono PCM at 1000 Hz."""
+    """Body: raw little-endian int16 mono PCM at the session's sample rate."""
     _check(x_password)
     s = _session(sid)
     s.add_audio(await request.body())
