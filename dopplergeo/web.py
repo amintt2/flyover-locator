@@ -3,6 +3,7 @@
 Run: uvicorn dopplergeo.web:app --host 0.0.0.0 --port 8000
 Env: DATA_DIR (default ./data), APP_PASSWORD (optional shared password),
      MAX_UPLOAD_MB (default 500), MAX_RADIUS_KM (default 100),
+     MAX_DAYS (default 31, find-the-day range), DAY_WORKERS (days searched at once),
      ADSB_FILE / DEM_NPZ (offline testing).
 """
 
@@ -24,8 +25,10 @@ from fastapi.responses import FileResponse, HTMLResponse
 
 from .audio import media_start_time
 from .dem import load_dem
+from .daysearch import day_events, search_days
 from .enf import DEFAULT_AREAS
 from .fetch import fetch_adsb
+from .index import build_day, day_path
 from .geo import M_PER_DEG_LAT, m_per_deg_lon
 from .pipeline import analyze_audio, locate
 from .search import SearchParams
@@ -34,10 +37,11 @@ from .session import LiveSession
 DATA = Path(os.environ.get("DATA_DIR", "data")).resolve()
 JOBS = DATA / "jobs"
 LIVE = DATA / "live"
-CACHE = DATA / "adsb_cache"
+INDEX = DATA / "adsb_index"
 PASSWORD = os.environ.get("APP_PASSWORD", "")
 MAX_UPLOAD = int(os.environ.get("MAX_UPLOAD_MB", "500")) * 1024 * 1024
 MAX_RADIUS_KM = float(os.environ.get("MAX_RADIUS_KM", "100"))
+MAX_DAYS = int(os.environ.get("MAX_DAYS", "31"))
 MAX_LIVE_RADIUS_KM = 450.0  # adsb.lol live point queries go up to 250 nm
 JOBS.mkdir(parents=True, exist_ok=True)
 LIVE.mkdir(parents=True, exist_ok=True)
@@ -54,10 +58,14 @@ def _check(pw):
         raise HTTPException(401, "wrong password")
 
 
-def _dem():
+def _dem_cfg():
     if os.environ.get("DEM_NPZ"):
-        return load_dem({"type": "npz", "path": os.environ["DEM_NPZ"]})
-    return load_dem({"type": "hgt", "dir": str(DATA / "dem"), "download": True})
+        return {"type": "npz", "path": os.environ["DEM_NPZ"]}
+    return {"type": "hgt", "dir": str(DATA / "dem"), "download": True}
+
+
+def _dem():
+    return load_dem(_dem_cfg())
 
 
 def _clean(o):
@@ -102,7 +110,53 @@ def _circle_area(lat, lon, radius_km):
 WORLD = {"lat_min": -60.0, "lat_max": 75.0, "lon_min": -180.0, "lon_max": 180.0}
 
 
-def _work(job, media, zone, start_unix, start_tol_s, use_meta, region, mode="locate"):
+def _find_day(job, a, info, zone, days, log):
+    """No time at all, only a range of days: search every day, rank them."""
+    events = day_events(a.fits)
+    if len(events) < 2:
+        raise RuntimeError("Pour retrouver le jour il faut au moins 2 passages d'avion bien nets dans le son "
+                           "(un seul passage colle à trop d'endroits et de jours).")
+    area = _circle_area(*zone) if zone else dict(WORLD)
+    _status(job, stage="adsb", days={"done": 0, "total": len(days)})
+    usable = []
+    for i, d in enumerate(days):
+        if day_path(INDEX, d).exists():
+            usable.append(d)
+            continue
+        log(f"{d}: not indexed yet, streaming it once (~3 GB, ~10 min)")
+        try:
+            build_day(d, INDEX, log=log)
+            usable.append(d)
+        except RuntimeError as e:  # not published yet
+            log(f"{d}: skipped ({e})")
+        _status(job, days={"done": 0, "total": len(days), "indexed": i + 1})
+    if not usable:
+        raise RuntimeError("Aucun jour de données d'avions disponible sur cette période.")
+    _status(job, stage="search")
+
+    def on_day(done, total, r):
+        _status(job, days={"done": done, "total": total, "last": r["day"]})
+
+    res, ranked = search_days(a.spec, events, usable, INDEX, area, _dem_cfg(), JOBS / job, log=log, on_day=on_day)
+    if res is None and len(a.events) >= 2 and len(a.events) < len(events):
+        log("no day matches every flyover; retrying with the strongest ones only")
+        res, ranked = search_days(a.spec, a.events, usable, INDEX, area, _dem_cfg(), JOBS / job, log=log,
+                                  on_day=on_day)
+    if res is None:
+        _status(job, state="done", stage="done", result={
+            "top": [], "heat": [], "events": [], "days": ranked[:10],
+            "message": f"Aucun jour sur {len(usable)} ne colle aux avions entendus."})
+        return
+    res["days"] = ranked[:10]
+    res["area"] = {"lat": zone[0], "lon": zone[1], "radius_km": zone[2]} if zone else {
+        "bbox": [min(t["lat"] for t in res["top"]), min(t["lon"] for t in res["top"]),
+                 max(t["lat"] for t in res["top"]), max(t["lon"] for t in res["top"])]}
+    res["enf"] = info["enf"]
+    res.setdefault("heat", [])
+    _status(job, state="done", stage="done", result=res)
+
+
+def _work(job, media, zone, start_unix, start_tol_s, use_meta, region, mode="locate", days=None):
     log = _log(job)
     try:
         _status(job, state="running", stage="audio")
@@ -124,6 +178,8 @@ def _work(job, media, zone, start_unix, start_tol_s, use_meta, region, mode="loc
             _status(job, state="done", stage="no_flyover",
                     result={"top": [], "heat": [], "events": [], "message": "Aucun passage d'avion à hélice détecté."})
             return
+        if days and not (meta and use_meta):  # the video's own timestamp beats a range of days
+            return _find_day(job, a, info, zone, days, log)
         if start_unix is None:
             raise RuntimeError("Il faut la date de l'enregistrement : remplis-la, ou envoie le fichier original "
                                "(les applis de messagerie effacent l'heure).")
@@ -147,7 +203,7 @@ def _work(job, media, zone, start_unix, start_tol_s, use_meta, region, mode="loc
 
             adsb = read_table(os.environ["ADSB_FILE"])
         else:
-            adsb = fetch_adsb(bbox, t_range, CACHE, log=log, max_alt_m=6000.0)
+            adsb = fetch_adsb(bbox, t_range, INDEX, log=log, max_alt_m=6000.0)
         if adsb.empty:
             raise RuntimeError("Aucune donnée d'avion dans cette zone à cette heure.")
         _status(job, stage="search")
@@ -178,7 +234,7 @@ def index():
 
 @app.get("/api/config")
 def config():
-    return {"password": bool(PASSWORD), "max_radius_km": MAX_RADIUS_KM, "max_live_radius_km": MAX_LIVE_RADIUS_KM,
+    return {"password": bool(PASSWORD), "max_radius_km": MAX_RADIUS_KM, "max_days": MAX_DAYS, "max_live_radius_km": MAX_LIVE_RADIUS_KM,
             "regions": {k: v["name"] for k, v in {"europe": DEFAULT_AREAS[50], "usa": DEFAULT_AREAS[60]}.items()}}
 
 
@@ -186,13 +242,24 @@ def config():
 async def create_job(file: UploadFile = File(...), lat: float | None = Form(None), lon: float | None = Form(None),
                      radius_km: float = Form(30.0), start: str = Form(""), start_tol_min: float = Form(30.0),
                      use_metadata: bool = Form(True), region: str = Form("auto"), mode: str = Form("locate"),
-                     x_password: str | None = Header(None)):
+                     day_from: str = Form(""), day_to: str = Form(""), x_password: str | None = Header(None)):
     _check(x_password)
     zone = None
     if lat is not None and lon is not None:
         if not (-90 <= lat <= 90 and -180 <= lon <= 180):
             raise HTTPException(400, "bad coordinates")
         zone = (lat, lon, min(max(radius_km, 1.0), MAX_RADIUS_KM))
+    days = None
+    if day_from and day_to:
+        d0, d1 = dt.date.fromisoformat(day_from), dt.date.fromisoformat(day_to)
+        if d1 < d0:
+            d0, d1 = d1, d0
+        d1 = min(d1, dt.datetime.now(dt.timezone.utc).date() - dt.timedelta(days=1))  # published the next day
+        if (d1 - d0).days + 1 > MAX_DAYS:
+            raise HTTPException(400, f"période trop longue (max {MAX_DAYS} jours)")
+        if d1 < d0:
+            raise HTTPException(400, "les données d'avions d'aujourd'hui sortent demain")
+        days = [d0 + dt.timedelta(k) for k in range((d1 - d0).days + 1)]
     job = uuid.uuid4().hex[:12]
     d = JOBS / job
     d.mkdir(parents=True)
@@ -215,7 +282,7 @@ async def create_job(file: UploadFile = File(...), lat: float | None = Form(None
     _status(job, state="queued", stage="queued", mode="detect" if mode == "detect" else "locate",
             log=[f"uploaded {size / 1e6:.1f} MB"])
     pool.submit(_work, job, media, zone, start_unix, start_tol_min * 60, use_metadata, region,
-                "detect" if mode == "detect" else "locate")
+                "detect" if mode == "detect" else "locate", days)
     return {"job": job}
 
 

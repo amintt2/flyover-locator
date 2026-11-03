@@ -58,9 +58,9 @@ def detect_flyovers(spec, c=343.0, fmin=50.0, fmax=300.0, win_s=110.0, step_s=20
     return events
 
 
-def events_for_search(fits, max_events=3):
+def events_for_search(fits, max_events=3, min_ratio=0.6):
     """Pick the strongest flyovers and turn them into search events."""
     top = max(f["strength"] for f in fits)
-    best = sorted((f for f in fits if f["strength"] >= 0.6 * top), key=lambda x: -x["strength"])[:max_events]
+    best = sorted((f for f in fits if f["strength"] >= min_ratio * top), key=lambda x: -x["strength"])[:max_events]
     best.sort(key=lambda x: x["tc"])
     return [event_from_fit(f, f["window"]) for f in best]

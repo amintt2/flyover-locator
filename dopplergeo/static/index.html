@@ -114,7 +114,18 @@ a { color: var(--accent); }
   .map-hint { left: calc(50% + var(--panel-w) / 2 + 8px); top: 20px; }
   .sheet-body { padding-bottom: 20px; }
 }
-@media (max-width: 899px) { .desk-only { display: none; } }
+@media (max-width: 899px) {
+  .desk-only { display: none; }
+  /* import step: a plain full-screen page, the map only comes back with results */
+  body.page #map, body.page .brand-pill, body.page .map-hint, body.page .handle { visibility: hidden; }
+  body.page .sheet { top: 0; height: auto !important; border-radius: 0; border-top: 0; box-shadow: none;
+    background: var(--bg); padding-top: var(--sat); transition: none; }
+  body.page .grab { padding-top: 6px; cursor: default; }
+  body.page .head-row .desk-only { display: inline; }
+  body.page .head-row .logo.desk-only { display: grid; }
+  body.page .head-row h1 { font-size: 20px; }
+  body.page .cta { background: var(--bg); border-top: 1px solid var(--line); margin-top: 22px; padding-top: 12px; }
+}
 
 /* segmented */
 .seg { position: relative; display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 13px;
@@ -127,6 +138,7 @@ a { color: var(--accent); }
   background: var(--card-2); box-shadow: 0 2px 8px rgba(0,0,0,.35), inset 0 0 0 1px var(--line);
   transition: transform .3s cubic-bezier(.2,.8,.2,1); }
 .seg.right .ind { transform: translateX(100%); }
+.seg.small2 { margin: 0 0 10px; } .seg.small2 button { font-size: 13.5px; padding: 7px 6px; }
 .seg.small { margin: 8px 0 0; grid-template-columns: repeat(3, 1fr); }
 .seg.small .ind { width: calc(33.333% - 2px); }
 .seg.small button { font-size: 13px; padding: 6px; }
@@ -390,7 +402,7 @@ select.row-in option { direction: ltr; background: var(--card-2); color: var(--t
 .advg summary { list-style: none; } .advg summary::-webkit-details-marker { display: none; }
 .chev { width: 9px; height: 9px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg);
   transition: transform .2s; margin: 0 4px 0 2px; flex: none; }
-.advg[open] .chev { transform: rotate(90deg); }
+.advg[open] .chev { transform: rotate(45deg); }
 .row-sub { padding: 12px 14px 4px; position: relative; }
 .row-note { font-size: 12.5px; color: var(--muted); padding: 10px 14px 14px; line-height: 1.45; border-top: 1px solid var(--line); }
 .group-f { font-size: 12.5px; color: var(--muted); margin: 8px 6px 0; line-height: 1.45; }
@@ -398,6 +410,11 @@ select.row-in option { direction: ltr; background: var(--card-2); color: var(--t
 .cta { position: sticky; bottom: 0; z-index: 2; margin: 18px -16px 0; padding: 14px 16px calc(6px + env(safe-area-inset-bottom));
   background: linear-gradient(to bottom, transparent, var(--surface) 22%); }
 .cta .btn { margin-top: 0; height: 54px; font-size: 16.5px; border-radius: 16px; }
+.days { padding: 10px 14px; }
+.day-r { display: grid; grid-template-columns: 92px 1fr 44px; align-items: center; gap: 10px; padding: 5px 0; font-size: 13px; color: var(--muted); }
+.day-r i { display: block; height: 6px; border-radius: 3px; background: var(--muted); opacity: .35; }
+.day-r.first { color: var(--text); } .day-r.first i { background: var(--accent); opacity: 1; }
+.day-r b { text-align: right; font-weight: 600; }
 .cta .btn:disabled { opacity: 1; background: var(--surface-2, #1f232c); color: var(--muted); box-shadow: none; }
 .text-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 6px; padding: 12px;
   background: none; border: 0; color: var(--accent); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; border-radius: 12px; }
@@ -454,7 +471,15 @@ select.row-in option { direction: ltr; background: var(--card-2); color: var(--t
       <input type="file" id="file" accept="video/*,audio/*,.m4a,.wav,.mp3,.mov,.mp4,.aac,.flac,.ogg,.webm" hidden>
 
       <div class="group-h">Quand</div>
-      <div class="group">
+      <div class="seg small2" id="whenSeg"><span class="ind"></span>
+        <button data-when="date" class="on">Je connais la date</button><button data-when="find">Trouver le jour</button></div>
+      <div class="group" id="findRows" hidden>
+        <label class="row"><span class="row-ic" style="--c:#bf5af2"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span>
+          <span class="row-l">Du</span><input class="row-in" type="date" id="dayFrom"></label>
+        <label class="row"><span class="row-ic" style="--c:#bf5af2"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span>
+          <span class="row-l">Au<small>max <span id="maxDays">31</span> jours</small></span><input class="row-in" type="date" id="dayTo"></label>
+      </div>
+      <div class="group" id="dateRows">
         <label class="row"><span class="row-ic" style="--c:#ff9f0a"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span>
           <span class="row-l">Date</span><input class="row-in" type="date" id="date"></label>
         <label class="row"><span class="row-ic" style="--c:#5e5ce6"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
@@ -473,8 +498,8 @@ select.row-in option { direction: ltr; background: var(--card-2); color: var(--t
             <option value="5">± 5 min</option><option value="15">± 15 min</option><option value="30" selected>± 30 min</option>
             <option value="60">± 1 h</option><option value="180">± 3 h</option><option value="720">± 12 h</option>
           </select></label>
-        <div class="row row-zone"><span class="row-l">Zone<small>touche la carte pour la placer</small></span>
-          <span class="row-v zone-v" id="fZoneT"></span><button class="link-btn" id="fZoneClear" hidden>Retirer</button></div>
+        <div class="row row-zone"><span class="row-l">Zone<small>optionnelle, sur la carte</small></span>
+          <span class="row-v zone-v" id="fZoneT"></span><button class="link-btn" id="fZonePick">Choisir</button><button class="link-btn" id="fZoneClear" hidden>Retirer</button></div>
         <div class="row-sub" id="fZoneRadius" hidden>
           <div class="range-head"><span>Rayon</span><b class="num"><span id="fRadV">30</span> km</b></div>
           <input type="range" id="fRad" min="1" max="100" value="30" step="1">
@@ -647,7 +672,7 @@ function badPassword() {
   toast('Mot de passe incorrect', 'err');
 }
 const cfgReady = fetch('api/config').then(r => r.json()).then(c => {
-  cfg = { ...cfg, ...c };
+  cfg = { ...cfg, ...c }; $('maxDays').textContent = cfg.max_days || 31;
   $('pwCard').hidden = !cfg.password;
   $('fRad').max = cfg.max_radius_km;
   $('lRad').max = cfg.max_live_radius_km;
@@ -864,6 +889,7 @@ map.on('click', e => {
     file.zone = { lat: ll.lat, lon: ll.lng, r: +$('fRad').value };
     if (!$('adv').open) $('adv').open = true;
     updateFileZoneUI(); renderZone(); hideHint();
+    if (file.pickZone) setTimeout(() => { file.pickZone = false; syncPage(); }, 700);
   } else if (mode === 'live' && live.view === 'live-setup') {
     live.zone.lat = ll.lat; live.zone.lon = ll.lng; live.zone.named = false;
     updateLiveZoneUI(); renderZone(); hideHint();
@@ -929,7 +955,7 @@ function setSnap(name) {
   window.addEventListener('pointercancel', end);
   grab.addEventListener('click', e => { if (suppress) { e.stopPropagation(); e.preventDefault(); } }, true);
 })();
-addEventListener('resize', () => setSnap(snap));
+addEventListener('resize', () => { setSnap(snap); syncPage(); });
 $('body').addEventListener('focusin', e => { if (!isDesk() && snap !== 'full' && e.target.matches('input:not([type=range]):not([type=checkbox]), select')) setSnap('full'); });
 
 /* ====================================================================== modes & views */
@@ -941,13 +967,25 @@ function showView(name) {
   document.querySelectorAll('[data-view]').forEach(s => s.hidden = !(s.dataset.view === name));
   if (name.startsWith('file')) file.view = name; else live.view = name;
   $('body').scrollTop = 0;
+  syncPage();
   renderMap();
 }
+function syncPage() {
+  const page = !isDesk() && mode === 'file' && !file.pickZone && ['file-form', 'file-progress'].includes(file.view);
+  if (page === document.body.classList.contains('page')) return;
+  document.body.classList.toggle('page', page);
+  if (!page) { setSnap(file.pickZone ? 'peek' : 'half'); if (typeof map !== 'undefined') map.resize(); }
+}
+$('fZonePick').onclick = () => {
+  file.pickZone = true; syncPage();
+  showHint('Touche la carte pour placer la zone', 8000);
+};
 function setMode(m) {
   mode = m;
   $('modeSeg').classList.toggle('right', m === 'live');
   $('modeSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
   showView(m === 'file' ? file.view : live.view);
+  syncPage();
   if (popup) popup.remove();
   if (m === 'live' && live.view === 'live-setup' && mapReady) {
     const z = live.zone, d = z.r / 111;
@@ -1022,12 +1060,17 @@ function resultHtml(res, opts = {}) {
     <div class="best-k">${opts.live && opts.state !== 'done' ? 'Meilleure estimation pour l\'instant' : 'Position la plus probable'}</div>
     <div class="best-c">${fmtCoord(b.lat, b.lon)}</div>
     <div class="best-s">${b.rec_start_unix ? 'Début de l\'enregistrement ≈ ' + utcStr(b.rec_start_unix) : ''}</div>
+    ${res.day ? `<div class="badges"><span class="badge acc">Jour trouvé : ${esc(new Date(res.day + 'T12:00:00Z').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</span>${res.day_confidence ? `<span class="badge">${res.day_confidence}× mieux que le jour suivant</span>` : ''}</div>` : ''}
     <div class="badges">${confBadge(res)}<span class="badge">${esc(meta.join(' · '))}</span></div>
     <div class="btn-row">
       <a class="btn" href="${svUrl(b)}" target="_blank" rel="noopener">${svgIc.eye}Street View</a>
       <a class="btn ghost" href="${mapsUrl(b)}" target="_blank" rel="noopener">${svgIc.arrow}Maps</a>
       <button class="btn ghost" style="flex:0 0 46px;padding:0" data-copy="${b.lat.toFixed(6)}, ${b.lon.toFixed(6)}" aria-label="Copier">${svgIc.copy}</button>
     </div></div>`;
+  if (res.days && res.days.length > 1) {
+    h += `<div class="section-t">Jours testés</div><div class="card days">` + res.days.slice(0, 6).map((d, i) =>
+      `<div class="day-r ${i ? '' : 'first'}"><span>${esc(d.day)}</span><i style="width:${Math.max(4, 100 * d.score / (res.days[0].score || 1))}%"></i><b class="num">${d.score ? d.score.toFixed(2) : '—'}</b></div>`).join('') + '</div>';
+  }
   if (top.length > 1 || !opts.compact) {
     h += `<div class="section-t">Candidats</div>`;
     h += top.map((t, i) => `<button class="cand ${i ? '' : 'first'}" data-cand="${i}"><span class="cand-r">${i + 1}</span>
@@ -1062,7 +1105,7 @@ function setFile(f) {
 }
 function updateFileZoneUI() {
   const z = file.zone;
-  $('fZoneClear').hidden = !z; $('fZoneRadius').hidden = !z;
+  $('fZoneClear').hidden = !z; $('fZoneRadius').hidden = !z; $('fZonePick').textContent = z ? 'Déplacer' : 'Choisir';
   $('fZoneT').innerHTML = z ? `<b class="num">${fmtCoord(z.lat, z.lon)}</b><span>rayon ${z.r} km</span>`
     : `<b>Partout</b>`;
   refreshGo();
@@ -1073,12 +1116,40 @@ $('fRad').oninput = () => { $('fRadV').textContent = $('fRad').value; if (file.z
 $('time').addEventListener('input', () => { if ($('time').value && !$('date').value) $('date').classList.add('bad'); else $('date').classList.remove('bad'); });
 $('date').addEventListener('input', () => $('date').classList.remove('bad'));
 $('adv').addEventListener('toggle', () => { if ($('adv').open && mode === 'file') showHint('Touche la carte pour placer la zone (optionnel)'); });
+let whenMode = 'date';
+const isoDay = d => d.toISOString().slice(0, 10);
+const cfgMaxDays = () => (typeof cfg !== 'undefined' && cfg && cfg.max_days) || 31;
+function daysInRange() {
+  const a = $('dayFrom').value, b = $('dayTo').value;
+  if (!a || !b) return 0;
+  return Math.abs((new Date(b) - new Date(a)) / 864e5) + 1;
+}
+(() => {
+  const y = new Date(Date.now() - 864e5);
+  $('dayTo').value = isoDay(y); $('dayTo').max = isoDay(y); $('dayFrom').max = isoDay(y);
+  $('dayFrom').value = isoDay(new Date(y - 6 * 864e5));
+})();
+$('whenSeg').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  whenMode = b.dataset.when;
+  $('whenSeg').classList.toggle('right', whenMode === 'find');
+  $('whenSeg').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  $('findRows').hidden = whenMode !== 'find';
+  $('date').closest('.row').hidden = $('time').closest('.row').hidden = whenMode === 'find';
+  refreshGo();
+});
+['dayFrom', 'dayTo'].forEach(id => $(id).addEventListener('change', refreshGo));
 function refreshGo() {
   const ok = !!file.file;
   $('goBtn').disabled = !ok; $('detectBtn').disabled = !ok;
   $('goBtn').innerHTML = ok ? `${svgIc.search.replace('24" height="24', '19" height="19')}Localiser` : 'Choisis un fichier';
   const h = $('timeHint'), d = $('date').value, t = $('time').value;
-  if (!d && !$('useMeta').checked) {
+  if (whenMode === 'find') {
+    const n = daysInRange();
+    h.className = n > cfgMaxDays() || n < 1 ? 'group-f warn' : 'group-f';
+    h.textContent = n < 1 ? 'Choisis une période.' : n > cfgMaxDays() ? `Période trop longue : ${cfgMaxDays()} jours maximum.`
+      : `On teste chacun des ${n} jours. Il faut au moins 2 passages d'avion nets dans le son. Un jour pas encore préparé prend ~10 min la première fois, ensuite c'est rapide.`;
+  } else if (!d && !$('useMeta').checked) {
     h.className = 'group-f warn'; h.textContent = 'Sans date (ni heure de la vidéo), on ne pourra que détecter les avions, pas localiser.';
   } else if (!d) {
     h.className = 'group-f'; h.textContent = 'On essaiera l\'heure inscrite dans la vidéo. Les applis de messagerie l\'effacent souvent : dans le doute, mets la date.';
@@ -1106,8 +1177,8 @@ function renderSteps(stage, opts = {}) {
   const subs = {
     0: opts.upload != null ? `${Math.round(opts.upload)} %` : '',
     1: stage === 'queued' ? 'En file d\'attente…' : 'Recherche des passages d\'avions dans le son',
-    2: 'Trajectoires ADS-B à l\'heure de l\'enregistrement',
-    3: 'Comparaison des courbes Doppler, point par point',
+    2: opts.days ? (opts.days.indexed != null ? `Préparation des jours : ${opts.days.indexed}/${opts.days.total}` : `${opts.days.total} jour(s) à tester`) : 'Trajectoires ADS-B à l\'heure de l\'enregistrement',
+    3: opts.days ? `Jour ${opts.days.done}/${opts.days.total} testé${opts.days.last ? ' · dernier : ' + opts.days.last : ''}` : 'Comparaison des courbes Doppler, point par point',
     4: '',
   };
   const finished = ['done', 'detect_done', 'no_flyover'].includes(stage);
@@ -1146,7 +1217,11 @@ async function submitJob(kind) {
   fd.append('file', file.file);
   if (kind === 'detect') fd.append('mode', 'detect');
   if (file.zone) { fd.append('lat', file.zone.lat); fd.append('lon', file.zone.lon); fd.append('radius_km', file.zone.r); }
-  if (d && t) { fd.append('start', `${d}T${t.length === 5 ? t + ':00' : t}Z`); fd.append('start_tol_min', $('tol').value || 30); }
+  if (kind !== 'detect' && whenMode === 'find') {
+    const n = daysInRange();
+    if (n < 1 || n > cfgMaxDays()) { toast(n < 1 ? 'Choisis une période' : `${cfgMaxDays()} jours maximum`, 'err'); return; }
+    fd.append('day_from', $('dayFrom').value); fd.append('day_to', $('dayTo').value);
+  } else if (d && t) { fd.append('start', `${d}T${t.length === 5 ? t + ':00' : t}Z`); fd.append('start_tol_min', $('tol').value || 30); }
   else if (d) { fd.append('start', `${d}T12:00:00Z`); fd.append('start_tol_min', 720); }
   else fd.append('start_tol_min', $('tol').value || 30);
   fd.append('use_metadata', $('useMeta').checked ? 'true' : 'false');
@@ -1215,9 +1290,10 @@ async function pollJob(job, fresh) {
       audioShown = true;
       $('fAudio').innerHTML = audioCardHtml(st.audio, jobImg(job, 'flyovers.png'));
     }
-    if (st.state === 'error') return fileFail(st.error || 'Erreur inconnue', st.stage || lastStage);
+    if (st.state === 'error') return fileFail(st.error || 'Erreur inconnue', st.stage || 'audio');
     if (st.state === 'done') return showFileResult(job, st);
-    if (st.stage !== lastStage) { lastStage = st.stage; if (st.mode === 'detect' && STEPS.length > 3) setStepsFor('detect'); renderSteps(st.stage); }
+    const dk = st.stage + JSON.stringify(st.days || '');
+    if (dk !== lastStage) { lastStage = dk; if (st.mode === 'detect' && STEPS.length > 3) setStepsFor('detect'); renderSteps(st.stage, { days: st.days }); }
     await sleep(2500);
   }
 }
@@ -1675,7 +1751,7 @@ async function resumeLive(sid) {
 /* ====================================================================== boot */
 updateFileZoneUI(); updateLiveZoneUI(); refreshGo();
 requestAnimationFrame(() => {
-  setSnap('half');
+  setSnap('half'); syncPage();
   if (!location.hash) map.fitBounds([[-5.2, 42.2], [8.4, 51.2]], { padding: mapPadding(), duration: 0 });
 });
 async function routeHash() {
