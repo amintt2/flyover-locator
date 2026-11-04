@@ -381,6 +381,40 @@ def survey_start(body: dict, x_password: str | None = Header(None)):
     return {"started": urls}
 
 
+@app.post("/api/survey/file")
+async def survey_file(file: UploadFile = File(...), info: str = Form("{}"), x_password: str | None = Header(None)):
+    """Scan a soundtrack downloaded elsewhere (YouTube refuses datacenter addresses)."""
+    _check(x_password)
+    meta = json.loads(info)
+    vid = str(meta.get("id") or uuid.uuid4().hex[:11])
+    if not vid.replace("-", "").replace("_", "").isalnum():
+        raise HTTPException(400, "id")
+    if not _survey_lock.acquire(blocking=False):
+        raise HTTPException(409, "survey already running")
+    d = SURVEY / "uploads" / vid
+    d.mkdir(parents=True, exist_ok=True)
+    src = d / ("a" + Path(file.filename or "a.webm").suffix)
+    with src.open("wb") as fh:
+        while chunk := await file.read(1 << 20):
+            fh.write(chunk)
+
+    def run():
+        row = {"url": meta.get("webpage_url"), "query": "upload", "ts": int(time.time())}
+        try:
+            row |= survey.analyse(str(src), meta | {"id": vid}, SURVEY / "review" / vid)
+        except Exception as e:
+            traceback.print_exc()
+            row |= meta | {"error": str(e)}
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+            with (SURVEY / "results.jsonl").open("a") as fh:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+            _survey_lock.release()
+
+    threading.Thread(target=run, daemon=True).start()
+    return {"id": vid}
+
+
 @app.get("/api/survey")
 def survey_results(x_password: str | None = Header(None)):
     _check(x_password)
