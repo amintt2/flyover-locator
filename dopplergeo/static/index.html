@@ -725,7 +725,7 @@ map.on('load', () => {
     attribution: 'Imagerie © Esri, Maxar, Earthstar Geographics' });
   map.addLayer({ id: 'sat', type: 'raster', source: 'sat', layout: { visibility: 'none' }, paint: { 'raster-fade-duration': 200 } }, below);
 
-  for (const s of ['zone', 'heat', 'tops', 'aircraft', 'radar', 'radar-path']) map.addSource(s, { type: 'geojson', data: EMPTY });
+  for (const s of ['zone', 'heat', 'tops', 'aircraft', 'radar', 'radar-path', 'radar-trail']) map.addSource(s, { type: 'geojson', data: EMPTY });
   const labelBelow = firstLayer(['highway_name_other', 'place_other']);
   map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zone', filter: ['==', '$type', 'Polygon'],
     paint: { 'fill-color': '#ff7a45', 'fill-opacity': ['case', ['get', 'dim'], 0.03, 0.08] } }, labelBelow);
@@ -745,11 +745,19 @@ map.on('load', () => {
       0.65, '#ff8a3d', 0.85, '#ffc061', 1, '#fff2c2'] } }, labelBelow);
 
   map.addImage('plane', planeImage(), { sdf: true, pixelRatio: 2 });
-  // everything flying in view right now (live ADS-B), under the recording's own aircraft,
-  // each with a dashed line to where it will be in five minutes
-  map.addLayer({ id: 'radar-path', type: 'line', source: 'radar-path', minzoom: 6, paint: {
-    'line-color': ['case', ['get', 'prop'], '#ffb27a', '#9aa3b5'], 'line-width': 1.6,
-    'line-opacity': ['case', ['get', 'prop'], 0.7, 0.35], 'line-dasharray': [2, 2] } });
+  // everything flying in view right now (live ADS-B), under the recording's own aircraft: where
+  // it has been (coloured by altitude), where it should be in the next five minutes (blue when
+  // descending, green when climbing) and, for airline flights, a dotted line to the airport
+  map.addLayer({ id: 'radar-trail', type: 'line', source: 'radar-trail', minzoom: 7.5,
+    layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: {
+    'line-color': ['interpolate', ['linear'], ['get', 'alt'], 0, '#ffd166', 1500, '#f79d65', 4000, '#e05780', 8000, '#9d4edd', 12000, '#4361ee'],
+    'line-width': 2, 'line-opacity': 0.55 } });
+  const pathColor = ['match', ['get', 'kind'], 'down', '#5aa9ff', 'up', '#6fdc8c', ['case', ['get', 'prop'], '#ffb27a', '#9aa3b5']];
+  map.addLayer({ id: 'radar-path', type: 'line', source: 'radar-path', minzoom: 6, filter: ['!=', ['get', 'kind'], 'route'],
+    paint: { 'line-color': pathColor, 'line-width': 1.8,
+      'line-opacity': ['case', ['any', ['get', 'prop'], ['!=', ['get', 'kind'], 'level']], 0.85, 0.4], 'line-dasharray': [2, 1.5] } });
+  map.addLayer({ id: 'radar-route', type: 'line', source: 'radar-path', minzoom: 7.5, filter: ['==', ['get', 'kind'], 'route'],
+    paint: { 'line-color': '#c3c9d6', 'line-width': 1, 'line-opacity': 0.35, 'line-dasharray': [1, 3] } });
   map.addLayer({ id: 'radar', type: 'symbol', source: 'radar', layout: {
     'icon-image': 'plane', 'icon-size': ['case', ['get', 'prop'], 0.55, 0.42], 'icon-rotate': ['get', 'brg'],
     'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true,
@@ -895,7 +903,9 @@ map.on('click', e => {
   if (ac) {
     const p = ac.properties;
     if (popup) popup.remove();
-    const extra = [p.flight, p.speed ? `${Math.round(p.speed * 3.6)} km/h` : ''].filter(Boolean).map(esc).join(' · ');
+    const vs = Math.abs(p.vs || 0) >= 1 ? `${p.vs < 0 ? 'descend' : 'monte'} ${Math.abs(Math.round(p.vs))} m/s` : '';
+    const extra = [p.flight, p.speed ? `${Math.round(p.speed * 3.6)} km/h` : '', vs, p.dest ? `→ ${p.dest}` : '']
+      .filter(Boolean).map(esc).join(' · ');
     popup = new maplibregl.Popup({ offset: 10, closeButton: false }).setLngLat(ac.geometry.coordinates)
       .setHTML(`<div class="pop-title">${esc(p.type || 'Type inconnu')} ${p.prop ? '· hélice' : '· jet'}</div><div class="pop-sub" style="margin:0">${esc(p.alt)} m · ${esc(p.hex)}${extra ? ' · ' + extra : ''}</div>`).addTo(map);
     return;
@@ -941,33 +951,76 @@ async function refreshRadar() {
   finally { radarBusy = false; }
 }
 function moveAlong(a, dt) {
-  // flat-earth step along the track: fine for the minute or two between fixes
+  // flat-earth step along the track, for aircraft without a predicted path
   if (!a.speed_ms || a.track == null) return [a.lon, a.lat];
   const m = a.speed_ms * dt, r = a.track * Math.PI / 180;
   const lat = a.lat + m * Math.cos(r) / 111320;
   return [a.lon + m * Math.sin(r) / (111320 * Math.cos(a.lat * Math.PI / 180)), lat];
 }
+function alongPath(path, dt) {
+  // position dt s after the fix on the predicted path ([lon, lat, s, alt] points), and the index of the next point
+  for (let i = 1; i < path.length; i++) {
+    const p = path[i - 1], q = path[i];
+    if (dt <= q[2]) {
+      const u = Math.max(0, (dt - p[2]) / (q[2] - p[2]));
+      return [[p[0] + (q[0] - p[0]) * u, p[1] + (q[1] - p[1]) * u], i];
+    }
+  }
+  const last = path[path.length - 1];
+  return [[last[0], last[1]], path.length];
+}
+function vertical(p, q) {
+  const r = (q[3] - p[3]) / (q[2] - p[2]);
+  return r < -1 ? 'down' : r > 1 ? 'up' : 'level';
+}
 function drawRadar() {
   if (!mapReady) return;
-  if (!radarWanted()) { map.getSource('radar').setData(EMPTY); map.getSource('radar-path').setData(EMPTY); return; }
+  if (!radarWanted()) { for (const id of ['radar', 'radar-path', 'radar-trail']) map.getSource(id).setData(EMPTY); return; }
   const now = Date.now() / 1000 + radarClock, propsOnly = map.getZoom() < RADAR_PROPS_ZOOM;
   const b = map.getBounds().toArray(), pad = 0.3;
-  const planes = [], paths = [];
+  const planes = [], paths = [], trails = [];
   for (const [hex, a] of radarPlanes) {
     const dt = now - a.t;
     if (dt > RADAR_KEEP_S) { radarPlanes.delete(hex); continue; }
     if (propsOnly && !a.prop) continue;
-    const pos = moveAlong(a, dt);
+    const path = a.path && a.path.length > 1 ? a.path : null;
+    const [pos, next] = path ? alongPath(path, dt) : [moveAlong(a, dt), 0];
     if (pos[0] < b[0][0] - pad || pos[0] > b[1][0] + pad || pos[1] < b[0][1] - pad || pos[1] > b[1][1] + pad) continue;
+    const brg = path && next < path.length ? bearing(pos, path[next]) : (a.track || 0);
     planes.push({ type: 'Feature', geometry: { type: 'Point', coordinates: pos },
-      properties: { hex, prop: !!a.prop, type: a.type || '', alt: a.alt_m, brg: a.track || 0, flight: a.flight || '',
-        speed: a.speed_ms || 0, low: a.alt_m < 3000, label: `${a.type || '?'} · ${a.alt_m} m` } });
-    if (a.speed_ms && a.track != null)
-      paths.push({ type: 'Feature', properties: { prop: !!a.prop },
+      properties: { hex, prop: !!a.prop, type: a.type || '', alt: a.alt_m, brg, flight: a.flight || '', speed: a.speed_ms || 0,
+        vs: a.vs_ms || 0, dest: a.dest ? `${a.dest.code || ''} ${a.dest.name || ''}`.trim() : '',
+        low: a.alt_m < 3000, label: `${a.type || '?'} · ${a.alt_m} m` } });
+    if (a.trail && a.trail.length) {
+      const pts = a.trail.map(p => [p[0], p[1]]).concat([pos]);
+      const alt = a.trail.reduce((s, p) => s + p[2], 0) / a.trail.length;
+      if (pts.length > 1) trails.push({ type: 'Feature', properties: { alt }, geometry: { type: 'LineString', coordinates: pts } });
+    }
+    if (path && next < path.length) {
+      // remaining path, cut where the aircraft goes from level to climbing or descending
+      let run = [pos], kind = vertical(path[next - 1], path[next]);
+      for (let i = next; i < path.length; i++) {
+        const k = i + 1 < path.length ? vertical(path[i], path[i + 1]) : kind;
+        run.push([path[i][0], path[i][1]]);
+        if (k !== kind || i + 1 === path.length) {
+          if (run.length > 1) paths.push({ type: 'Feature', properties: { prop: !!a.prop, kind }, geometry: { type: 'LineString', coordinates: run } });
+          run = [[path[i][0], path[i][1]]]; kind = k;
+        }
+      }
+    } else if (!path && a.speed_ms && a.track != null) {
+      paths.push({ type: 'Feature', properties: { prop: !!a.prop, kind: 'level' },
         geometry: { type: 'LineString', coordinates: [pos, moveAlong(a, dt + RADAR_AHEAD_S)] } });
+    }
+    if (a.dest && path) {
+      const end = path[path.length - 1];
+      if (Math.abs(end[0] - a.dest.lon) + Math.abs(end[1] - a.dest.lat) > 0.02)
+        paths.push({ type: 'Feature', properties: { prop: !!a.prop, kind: 'route' },
+          geometry: { type: 'LineString', coordinates: [[end[0], end[1]], [a.dest.lon, a.dest.lat]] } });
+    }
   }
   map.getSource('radar').setData({ type: 'FeatureCollection', features: planes });
   map.getSource('radar-path').setData({ type: 'FeatureCollection', features: paths });
+  map.getSource('radar-trail').setData({ type: 'FeatureCollection', features: trails });
 }
 setInterval(() => { if (!document.hidden) drawRadar(); }, 1000);
 let radarFollow = null;

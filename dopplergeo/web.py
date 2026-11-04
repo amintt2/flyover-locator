@@ -32,8 +32,8 @@ from .fetch import fetch_adsb
 from .index import build_day, day_path
 from .geo import M_PER_DEG_LAT, m_per_deg_lon
 from .pipeline import analyze_audio, locate
+from .radar import Radar
 from .search import SearchParams
-from .live import Radar
 from .session import LiveSession
 
 DATA = Path(os.environ.get("DATA_DIR", "data")).resolve()
@@ -273,7 +273,7 @@ def aircraft(south: float, west: float, north: float, east: float, zoom: float =
     """Aircraft flying in a map view now. Zoomed out (a country), only propellers:
     those are the ones a recording can hear."""
     _check(x_password)
-    ac, stale = RADAR.view(south, west, north, east, props_only=zoom < 7.5)
+    ac, stale = RADAR.view(south, west, north, east, props_only=zoom < 7.5, detail=zoom >= 7.5)
     return {"aircraft": ac, "props_only": zoom < 7.5, "stale": stale, "t": time.time()}
 
 
