@@ -14,6 +14,7 @@ survey/review/<id>/*.png.
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,8 @@ from .physics import straight_flyover
 from .pipeline import SPEC, SR, WIDE, analyze_audio
 
 # YouTube search filters: sort by view count, uploaded this week / this month / any time
+# extra yt-dlp options, e.g. a JavaScript runtime YouTube needs ("--js-runtimes node" on the server)
+YTDLP = ["yt-dlp", *os.environ.get("YTDLP_ARGS", "").split()]
 SORTS = {"week": "CAMSAggD", "month": "CAMSAggE", "views": "CAM%3D", "relevance": ""}
 
 
@@ -38,7 +41,7 @@ def list_urls(target, n, sort="week"):
     if not target.startswith("http"):
         target = "https://www.youtube.com/results?search_query=" + urllib.parse.quote(target) + (
             f"&sp={SORTS[sort]}" if SORTS[sort] else "")
-    out = subprocess.run(["yt-dlp", "--flat-playlist", "--playlist-end", str(n), "-J", target],
+    out = subprocess.run([*YTDLP, "--flat-playlist", "--playlist-end", str(n), "-J", target],
                          capture_output=True, text=True, timeout=300)
     if out.returncode:
         raise RuntimeError(out.stderr.strip().splitlines()[-1] if out.stderr.strip() else "yt-dlp failed")
@@ -50,11 +53,11 @@ def list_urls(target, n, sort="week"):
 
 def download(url, workdir, max_s):
     """Audio-only download; returns (path, metadata) or raises."""
-    meta = subprocess.run(["yt-dlp", "--no-playlist", "-J", url], capture_output=True, text=True, timeout=120)
+    meta = subprocess.run([*YTDLP, "--no-playlist", "-J", url], capture_output=True, text=True, timeout=120)
     if meta.returncode:
         raise RuntimeError((meta.stderr.strip().splitlines() or ["metadata failed"])[-1])
     m = json.loads(meta.stdout)
-    info = {k: m.get(k) for k in ("id", "title", "channel", "duration", "view_count", "upload_date",
+    info = {k: m.get(k) for k in ("id", "title", "channel", "channel_follower_count", "duration", "view_count", "upload_date",
                                   "live_status", "categories", "extractor_key", "webpage_url")}
     info["tags"] = (m.get("tags") or [])[:10]
     if info["live_status"] in ("is_live", "is_upcoming"):
@@ -63,7 +66,7 @@ def download(url, workdir, max_s):
         raise RuntimeError(f"too long ({info['duration'] / 3600:.1f} h)")
     d = Path(tempfile.mkdtemp(dir=workdir))
     # best audio: low bitrates drop faint tones under speech
-    r = subprocess.run(["yt-dlp", "--no-playlist", "-f", "ba/b", "-o", str(d / "a.%(ext)s"), url],
+    r = subprocess.run([*YTDLP, "--no-playlist", "-f", "ba/b", "-o", str(d / "a.%(ext)s"), url],
                        capture_output=True, text=True, timeout=1800)
     src = next((p for p in d.glob("a.*") if not p.name.endswith(".part")), None)
     if r.returncode or src is None:
@@ -111,6 +114,27 @@ def review_png(a, f, path, c=343.0):
     plt.close(fig)
 
 
+def overview_png(a, path, span=180):
+    """Three minutes from the middle of the low band: a raw soundtrack shows steady
+    background lines (traffic, engines, hum); a denoised one is black between voices."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    spec = getattr(a.spec, "low", a.spec)
+    mid = spec.times[len(spec.times) // 2]
+    m = (spec.times >= mid - span / 2) & (spec.times <= mid + span / 2)
+    if m.sum() < 2:
+        return
+    fig, ax = plt.subplots(figsize=(9, 3.6), dpi=70)
+    ax.imshow(spec.z[:, m], origin="lower", aspect="auto", cmap="magma", vmin=0, vmax=4,
+              extent=[spec.times[m][0], spec.times[m][-1], spec.freqs[0], spec.freqs[-1]])
+    ax.set_title(f"overview {mid - span / 2:.0f}-{mid + span / 2:.0f}s", fontsize=9)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+
+
 def analyse(src, info, review_dir):
     t = time.time()
     x, sr = load_audio(src, sr=SR)
@@ -118,8 +142,9 @@ def analyse(src, info, review_dir):
     a = analyze_audio(src, None, log=lambda m: None, plots=False)
     keep = ("tc", "f0", "v", "d", "strength", "rms_hz")
     fits = [{k: round(float(f[k]), 1) for k in keep if k in f} | {"band": f.get("band") or "low"} for f in a.fits]
+    review_dir.mkdir(parents=True, exist_ok=True)
+    overview_png(a, review_dir / "overview.png")
     if a.fits:
-        review_dir.mkdir(parents=True, exist_ok=True)
         for f in a.fits:
             review_png(a, f, review_dir / f"{f['tc']:07.1f}.png")
     others = {}

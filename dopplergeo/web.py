@@ -35,6 +35,7 @@ from .pipeline import analyze_audio, locate
 from .radar import Radar
 from .search import SearchParams
 from .session import LiveSession
+from . import survey
 
 DATA = Path(os.environ.get("DATA_DIR", "data")).resolve()
 JOBS = DATA / "jobs"
@@ -350,6 +351,51 @@ def job_image(job: str, name: str, pw: str = ""):
     if not job.isalnum() or name not in IMAGES or not path.exists():
         raise HTTPException(404)
     return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+# ------------------------------------------------------------------ video survey
+
+SURVEY = DATA / "survey"
+_survey_lock = threading.Lock()
+
+
+@app.post("/api/survey")
+def survey_start(body: dict, x_password: str | None = Header(None)):
+    """Download and scan a few video URLs on the server (one run at a time)."""
+    _check(x_password)
+    urls = [u for u in body.get("urls", []) if isinstance(u, str) and u.startswith("https://")][:10]
+    if not urls:
+        raise HTTPException(400, "urls")
+    if not _survey_lock.acquire(blocking=False):
+        raise HTTPException(409, "survey already running")
+
+    def run():
+        try:
+            survey.main([*urls, "--out", str(SURVEY), "--max-hours", str(body.get("max_hours", 3))])
+        except Exception:
+            traceback.print_exc()
+        finally:
+            _survey_lock.release()
+
+    threading.Thread(target=run, daemon=True).start()
+    return {"started": urls}
+
+
+@app.get("/api/survey")
+def survey_results(x_password: str | None = Header(None)):
+    _check(x_password)
+    path = SURVEY / "results.jsonl"
+    rows = [json.loads(l) for l in path.read_text().splitlines()] if path.exists() else []
+    return {"running": _survey_lock.locked(), "results": rows}
+
+
+@app.get("/api/survey/img/{vid}/{name}")
+def survey_image(vid: str, name: str, pw: str = ""):
+    _check(pw)
+    path = SURVEY / "review" / vid / name
+    if not vid.replace("-", "").replace("_", "").isalnum() or not name.endswith(".png") or "/" in name or not path.exists():
+        raise HTTPException(404)
+    return FileResponse(path, media_type="image/png")
 
 
 # ------------------------------------------------------------------ live recording

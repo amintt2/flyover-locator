@@ -1,14 +1,15 @@
 FROM python:3.12-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY dopplergeo ./dopplergeo
-RUN pip install --no-cache-dir ".[web]"
+RUN pip install --no-cache-dir ".[web]" "yt-dlp[default]"
 
 ENV DATA_DIR=/data \
+    YTDLP_ARGS="--js-runtimes node" \
     PYTHONUNBUFFERED=1
 VOLUME /data
 EXPOSE 8000
