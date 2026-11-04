@@ -432,6 +432,47 @@ def survey_image(vid: str, name: str, pw: str = ""):
     return FileResponse(path, media_type="image/png")
 
 
+@app.post("/api/traces")
+def traces_start(body: dict, x_password: str | None = Header(None)):
+    """Every aircraft (jets too, unlike the index) in a small box for one day, streamed
+    from the adsb.lol archive on the server; fetch the parquet when it is ready."""
+    _check(x_password)
+    from .adsb import stream_readsb_archive
+    from .fetch import _asset_urls
+
+    day = dt.date.fromisoformat(body["day"])
+    bbox = tuple(float(x) for x in body["bbox"])  # lat_min, lat_max, lon_min, lon_max
+    if bbox[1] - bbox[0] > 1 or bbox[3] - bbox[2] > 1:
+        raise HTTPException(400, "box too large")
+    key = f"{day}_" + "_".join(f"{x:.3f}" for x in bbox)
+    out = DATA / "traces" / f"{key}.parquet"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if not out.exists() and not out.with_suffix(".running").exists():
+        out.with_suffix(".running").touch()
+
+        def run():
+            try:
+                stream_readsb_archive(_asset_urls(day), out, bbox, log=lambda m: print("traces", m, flush=True))
+            except Exception:
+                traceback.print_exc()
+            finally:
+                out.with_suffix(".running").unlink(missing_ok=True)
+
+        threading.Thread(target=run, daemon=True).start()
+    return {"key": key}
+
+
+@app.get("/api/traces/{key}")
+def traces_get(key: str, x_password: str | None = Header(None)):
+    _check(x_password)
+    out = DATA / "traces" / f"{key}.parquet"
+    if "/" in key or ".." in key:
+        raise HTTPException(404)
+    if out.exists():
+        return FileResponse(out, media_type="application/octet-stream")
+    return JSONResponse({"running": out.with_suffix(".running").exists()}, status_code=202)
+
+
 # ------------------------------------------------------------------ live recording
 
 
