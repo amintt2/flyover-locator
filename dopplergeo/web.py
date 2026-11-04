@@ -268,11 +268,13 @@ RADAR = Radar()
 
 
 @app.get("/api/aircraft")
-def aircraft(lat: float, lon: float, radius_km: float = 50.0, x_password: str | None = Header(None)):
-    """Aircraft flying around a point now (live map)."""
+def aircraft(south: float, west: float, north: float, east: float, zoom: float = 8.0,
+             x_password: str | None = Header(None)):
+    """Aircraft flying in a map view now. Zoomed out (a country), only propellers:
+    those are the ones a recording can hear."""
     _check(x_password)
-    ac, stale = RADAR.around(lat, lon, radius_km)
-    return {"aircraft": ac, "stale": stale, "t": time.time()}
+    ac, stale = RADAR.view(south, west, north, east, props_only=zoom < 7.5)
+    return {"aircraft": ac, "props_only": zoom < 7.5, "stale": stale, "t": time.time()}
 
 
 @app.post("/api/jobs")

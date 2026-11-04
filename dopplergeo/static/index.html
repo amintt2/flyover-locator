@@ -725,7 +725,7 @@ map.on('load', () => {
     attribution: 'Imagerie © Esri, Maxar, Earthstar Geographics' });
   map.addLayer({ id: 'sat', type: 'raster', source: 'sat', layout: { visibility: 'none' }, paint: { 'raster-fade-duration': 200 } }, below);
 
-  for (const s of ['zone', 'heat', 'tops', 'aircraft', 'radar']) map.addSource(s, { type: 'geojson', data: EMPTY });
+  for (const s of ['zone', 'heat', 'tops', 'aircraft', 'radar', 'radar-path']) map.addSource(s, { type: 'geojson', data: EMPTY });
   const labelBelow = firstLayer(['highway_name_other', 'place_other']);
   map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zone', filter: ['==', '$type', 'Polygon'],
     paint: { 'fill-color': '#ff7a45', 'fill-opacity': ['case', ['get', 'dim'], 0.03, 0.08] } }, labelBelow);
@@ -745,7 +745,11 @@ map.on('load', () => {
       0.65, '#ff8a3d', 0.85, '#ffc061', 1, '#fff2c2'] } }, labelBelow);
 
   map.addImage('plane', planeImage(), { sdf: true, pixelRatio: 2 });
-  // everything flying in view right now (live ADS-B), under the recording's own aircraft
+  // everything flying in view right now (live ADS-B), under the recording's own aircraft,
+  // each with a dashed line to where it will be in five minutes
+  map.addLayer({ id: 'radar-path', type: 'line', source: 'radar-path', minzoom: 6, paint: {
+    'line-color': ['case', ['get', 'prop'], '#ffb27a', '#9aa3b5'], 'line-width': 1.6,
+    'line-opacity': ['case', ['get', 'prop'], 0.7, 0.35], 'line-dasharray': [2, 2] } });
   map.addLayer({ id: 'radar', type: 'symbol', source: 'radar', layout: {
     'icon-image': 'plane', 'icon-size': ['case', ['get', 'prop'], 0.55, 0.42], 'icon-rotate': ['get', 'brg'],
     'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true,
@@ -907,32 +911,73 @@ map.on('click', e => {
     updateLiveZoneUI(); renderZone(); hideHint();
   }
 });
-/* live radar: what is flying in view now, refreshed every 5 s while the page is visible */
-const RADAR_MIN_ZOOM = 6;
-let radarTimer = null, radarBusy = false;
+/* live radar: what is flying in view now. Planes are kept here once seen (zooming out and
+   back in shows them again at once) and moved along their track every second from their last
+   fix; the server is asked again every 10 s and itself asks the ADS-B API only every 30 s per
+   area, so map moves cost nothing. Zoomed out to a country: propellers only. */
+const RADAR_MIN_ZOOM = 4.5, RADAR_PROPS_ZOOM = 7.5, RADAR_KEEP_S = 180, RADAR_AHEAD_S = 300;
+const radarPlanes = new Map();  // hex -> latest aircraft from the server (t: fix time, s)
+let radarTimer = null, radarBusy = false, radarClock = 0;  // radarClock: server minus local time, s
 function radarWanted() {
   // a recording shows its own aircraft (with distances); the radar would only duplicate them
   return mapReady && !document.hidden && map.getZoom() >= RADAR_MIN_ZOOM && !(mode === 'live' && live.sid);
 }
 async function refreshRadar() {
   clearTimeout(radarTimer);
-  radarTimer = setTimeout(refreshRadar, 5000);
-  if (!radarWanted()) { if (mapReady) map.getSource('radar').setData(EMPTY); return; }
-  if (radarBusy) return;
+  radarTimer = setTimeout(refreshRadar, 10000);
+  if (!radarWanted() || radarBusy) return;
   radarBusy = true;
   try {
-    const c = map.getCenter(), b = map.getBounds();
-    const km = Math.min(250, map.getCenter().distanceTo(b.getNorthEast()) / 1000);
-    const d = await api(`aircraft?lat=${c.lat.toFixed(4)}&lon=${c.lng.toFixed(4)}&radius_km=${km.toFixed(0)}`);
-    if (!radarWanted()) return;
-    map.getSource('radar').setData({ type: 'FeatureCollection', features: d.aircraft.map(a => ({
-      type: 'Feature', geometry: { type: 'Point', coordinates: [a.lon, a.lat] },
-      properties: { hex: a.hex, prop: !!a.prop, type: a.type || '', alt: a.alt_m, brg: a.track || 0, flight: a.flight || '',
-        speed: a.speed_ms || 0, low: a.alt_m < 3000, label: `${a.type || '?'} · ${a.alt_m} m` } })) });
-  } catch (e) { /* keep the last picture; next try in 5 s */ }
+    const b = map.getBounds(), f = x => x.toFixed(3);
+    const d = await api(`aircraft?south=${f(b.getSouth())}&west=${f(b.getWest())}&north=${f(b.getNorth())}` +
+      `&east=${f(b.getEast())}&zoom=${map.getZoom().toFixed(1)}`);
+    radarClock = d.t - Date.now() / 1000;
+    for (const a of d.aircraft) {
+      const old = radarPlanes.get(a.hex);
+      if (!old || a.t >= old.t) radarPlanes.set(a.hex, a);
+    }
+    drawRadar();
+  } catch (e) { /* keep the planes on screen; next try in 10 s */ }
   finally { radarBusy = false; }
 }
-map.on('moveend', () => { if (mapReady) { clearTimeout(radarTimer); radarTimer = setTimeout(refreshRadar, 300); } });
+function moveAlong(a, dt) {
+  // flat-earth step along the track: fine for the minute or two between fixes
+  if (!a.speed_ms || a.track == null) return [a.lon, a.lat];
+  const m = a.speed_ms * dt, r = a.track * Math.PI / 180;
+  const lat = a.lat + m * Math.cos(r) / 111320;
+  return [a.lon + m * Math.sin(r) / (111320 * Math.cos(a.lat * Math.PI / 180)), lat];
+}
+function drawRadar() {
+  if (!mapReady) return;
+  if (!radarWanted()) { map.getSource('radar').setData(EMPTY); map.getSource('radar-path').setData(EMPTY); return; }
+  const now = Date.now() / 1000 + radarClock, propsOnly = map.getZoom() < RADAR_PROPS_ZOOM;
+  const b = map.getBounds().toArray(), pad = 0.3;
+  const planes = [], paths = [];
+  for (const [hex, a] of radarPlanes) {
+    const dt = now - a.t;
+    if (dt > RADAR_KEEP_S) { radarPlanes.delete(hex); continue; }
+    if (propsOnly && !a.prop) continue;
+    const pos = moveAlong(a, dt);
+    if (pos[0] < b[0][0] - pad || pos[0] > b[1][0] + pad || pos[1] < b[0][1] - pad || pos[1] > b[1][1] + pad) continue;
+    planes.push({ type: 'Feature', geometry: { type: 'Point', coordinates: pos },
+      properties: { hex, prop: !!a.prop, type: a.type || '', alt: a.alt_m, brg: a.track || 0, flight: a.flight || '',
+        speed: a.speed_ms || 0, low: a.alt_m < 3000, label: `${a.type || '?'} · ${a.alt_m} m` } });
+    if (a.speed_ms && a.track != null)
+      paths.push({ type: 'Feature', properties: { prop: !!a.prop },
+        geometry: { type: 'LineString', coordinates: [pos, moveAlong(a, dt + RADAR_AHEAD_S)] } });
+  }
+  map.getSource('radar').setData({ type: 'FeatureCollection', features: planes });
+  map.getSource('radar-path').setData({ type: 'FeatureCollection', features: paths });
+}
+setInterval(() => { if (!document.hidden) drawRadar(); }, 1000);
+let radarFollow = null;
+map.on('moveend', () => {
+  if (!mapReady) return;
+  drawRadar();
+  clearTimeout(radarTimer); clearTimeout(radarFollow);
+  radarTimer = setTimeout(refreshRadar, 400);
+  radarFollow = setTimeout(refreshRadar, 3500);  // a new area: the server has fetched it by then
+});
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshRadar(); });
 
 let hintTimer;
