@@ -9,6 +9,7 @@ runs the locator and reports the error.
 
 import argparse
 import json
+import math
 import subprocess
 import threading
 import time
@@ -18,6 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from .aircraft import is_propeller
 from .dem import load_dem
 from .geo import M_PER_DEG_LAT, haversine_m, m_per_deg_lon
 from .pipeline import run
@@ -102,6 +104,70 @@ class SharedPoller:
             if self.users <= 0:
                 self.stop.set()
                 SharedPoller._all.pop(self.key, None)
+
+
+class Radar:
+    """Aircraft around a point right now, for the map. Answers are cached a few seconds
+    and shared by everyone looking at roughly the same area, upstream requests are
+    spaced out, and after an HTTP 429 the last answers are served until the API allows
+    requests again: map viewers must never get the recording sessions throttled."""
+
+    def __init__(self, ttl=5.0, min_gap=1.0):
+        self.ttl, self.min_gap = ttl, min_gap
+        self.lock = threading.Lock()
+        self.cache = {}  # key -> (fetched_at, aircraft)
+        self.last_request = 0.0
+        self.blocked_until = 0.0
+
+    def around(self, lat, lon, radius_km):
+        radius_km = min(max(radius_km, 5.0), 250.0)
+        # snap the centre to a grid a quarter of the radius wide, so panning reuses answers
+        step = radius_km / 4 / 111.0
+        lat_c, lon_c = round(lat / step) * step, round(lon / step) * step
+        nm = int(math.ceil(radius_km * 1.25 / 1.852))  # a little wider than asked: the snap moves the centre
+        key = (round(lat_c, 4), round(lon_c, 4), nm)
+        now = time.time()
+        with self.lock:
+            hit = self.cache.get(key)
+            if hit and now - hit[0] < self.ttl:
+                return hit[1], False
+            if now < self.blocked_until or now - self.last_request < self.min_gap:
+                return (hit[1] if hit else []), True
+            self.last_request = now
+        try:
+            req = urllib.request.Request(API.format(lat=lat_c, lon=lon_c, nm=nm),
+                                         headers={"User-Agent": "dopplergeo-map"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                d = json.load(r)
+        except urllib.error.HTTPError as e:
+            with self.lock:
+                if e.code == 429:
+                    try:
+                        retry = float(e.headers.get("Retry-After") or 0)
+                    except ValueError:
+                        retry = 0.0
+                    self.blocked_until = time.time() + max(15.0, retry)
+            return (hit[1] if hit else []), True
+        except Exception:
+            return (hit[1] if hit else []), True
+        out = []
+        for a in d.get("ac", []):
+            alt = a.get("alt_geom")
+            if alt is None:
+                alt = a.get("alt_baro")
+            if a.get("lat") is None or alt is None:
+                continue
+            typ = a.get("t") or ""
+            out.append({"hex": a["hex"], "lat": a["lat"], "lon": a["lon"],
+                        "alt_m": 0 if alt == "ground" else round(alt * FT), "type": typ,
+                        "prop": bool(typ) and is_propeller(typ), "track": a.get("track"),
+                        "speed_ms": round(a["gs"] * 0.5144) if a.get("gs") is not None else None,
+                        "flight": (a.get("flight") or "").strip()})
+        with self.lock:
+            self.cache[key] = (time.time(), out)
+            for k in [k for k, v in self.cache.items() if time.time() - v[0] > 60]:
+                del self.cache[k]
+        return out, False
 
 
 def record(url, seconds, path):

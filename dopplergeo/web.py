@@ -33,6 +33,7 @@ from .index import build_day, day_path
 from .geo import M_PER_DEG_LAT, m_per_deg_lon
 from .pipeline import analyze_audio, locate
 from .search import SearchParams
+from .live import Radar
 from .session import LiveSession
 
 DATA = Path(os.environ.get("DATA_DIR", "data")).resolve()
@@ -261,6 +262,17 @@ def index():
 def config():
     return {"password": bool(PASSWORD), "max_radius_km": MAX_RADIUS_KM, "max_days": MAX_DAYS, "max_live_radius_km": MAX_LIVE_RADIUS_KM,
             "regions": {k: v["name"] for k, v in {"europe": DEFAULT_AREAS[50], "usa": DEFAULT_AREAS[60]}.items()}}
+
+
+RADAR = Radar()
+
+
+@app.get("/api/aircraft")
+def aircraft(lat: float, lon: float, radius_km: float = 50.0, x_password: str | None = Header(None)):
+    """Aircraft flying around a point now (live map)."""
+    _check(x_password)
+    ac, stale = RADAR.around(lat, lon, radius_km)
+    return {"aircraft": ac, "stale": stale, "t": time.time()}
 
 
 @app.post("/api/jobs")

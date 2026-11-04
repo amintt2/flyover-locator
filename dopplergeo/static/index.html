@@ -725,7 +725,7 @@ map.on('load', () => {
     attribution: 'Imagerie © Esri, Maxar, Earthstar Geographics' });
   map.addLayer({ id: 'sat', type: 'raster', source: 'sat', layout: { visibility: 'none' }, paint: { 'raster-fade-duration': 200 } }, below);
 
-  for (const s of ['zone', 'heat', 'tops', 'aircraft']) map.addSource(s, { type: 'geojson', data: EMPTY });
+  for (const s of ['zone', 'heat', 'tops', 'aircraft', 'radar']) map.addSource(s, { type: 'geojson', data: EMPTY });
   const labelBelow = firstLayer(['highway_name_other', 'place_other']);
   map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zone', filter: ['==', '$type', 'Polygon'],
     paint: { 'fill-color': '#ff7a45', 'fill-opacity': ['case', ['get', 'dim'], 0.03, 0.08] } }, labelBelow);
@@ -745,6 +745,16 @@ map.on('load', () => {
       0.65, '#ff8a3d', 0.85, '#ffc061', 1, '#fff2c2'] } }, labelBelow);
 
   map.addImage('plane', planeImage(), { sdf: true, pixelRatio: 2 });
+  // everything flying in view right now (live ADS-B), under the recording's own aircraft
+  map.addLayer({ id: 'radar', type: 'symbol', source: 'radar', layout: {
+    'icon-image': 'plane', 'icon-size': ['case', ['get', 'prop'], 0.55, 0.42], 'icon-rotate': ['get', 'brg'],
+    'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+    'symbol-sort-key': ['case', ['get', 'prop'], 1, 0],
+    'text-field': ['step', ['zoom'], '', 8, ['get', 'label']],
+    'text-font': ['Noto Sans Regular'], 'text-size': 10.5, 'text-offset': [0, 1.4], 'text-anchor': 'top', 'text-optional': true },
+    paint: { 'icon-color': ['case', ['get', 'prop'], '#ffb27a', '#9aa3b5'], 'icon-opacity': ['case', ['get', 'low'], 1, 0.6],
+      'icon-halo-color': 'rgba(0,0,0,.75)', 'icon-halo-width': 1.2,
+      'text-color': ['case', ['get', 'prop'], '#ffd2b3', '#c3c9d6'], 'text-halo-color': 'rgba(0,0,0,.85)', 'text-halo-width': 1.4 } });
   map.addLayer({ id: 'aircraft', type: 'symbol', source: 'aircraft', layout: {
     'icon-image': 'plane', 'icon-size': ['case', ['get', 'prop'], 0.62, 0.45], 'icon-rotate': ['get', 'brg'],
     'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true,
@@ -767,13 +777,14 @@ map.on('load', () => {
     'symbol-sort-key': ['-', 0, ['get', 'rank']] },
     paint: { 'text-color': ['case', ['==', ['get', 'rank'], 1], '#1a0d06', '#e6e9ef'] } });
 
-  for (const id of ['tops', 'aircraft']) {
+  for (const id of ['tops', 'aircraft', 'radar']) {
     map.on('mouseenter', id, () => map.getCanvas().style.cursor = 'pointer');
     map.on('mouseleave', id, () => map.getCanvas().style.cursor = '');
   }
   mapReady = true;
   applySat();
   renderMap();
+  refreshRadar();
   if (pendingFit) { const [r, pr] = pendingFit; pendingFit = null; fitResult(r, pr); }
 });
 map.on('styleimagemissing', e => { if (!map.hasImage(e.id)) map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) }); });
@@ -873,15 +884,16 @@ const mapsUrl = t => isApple ? `https://maps.apple.com/?ll=${t.lat},${t.lon}&q=$
 
 map.on('click', e => {
   if (!mapReady) return;
-  const hit = map.queryRenderedFeatures(e.point, { layers: ['tops', 'aircraft'] });
+  const hit = map.queryRenderedFeatures(e.point, { layers: ['tops', 'aircraft', 'radar'] });
   const top = hit.find(f => f.layer.id === 'tops');
   if (top) { const i = top.properties.idx; openTopPopup(mapState[mode].tops[i], i + 1); return; }
-  const ac = hit.find(f => f.layer.id === 'aircraft');
+  const ac = hit.find(f => f.layer.id === 'aircraft') || hit.find(f => f.layer.id === 'radar');
   if (ac) {
     const p = ac.properties;
     if (popup) popup.remove();
+    const extra = [p.flight, p.speed ? `${Math.round(p.speed * 3.6)} km/h` : ''].filter(Boolean).map(esc).join(' · ');
     popup = new maplibregl.Popup({ offset: 10, closeButton: false }).setLngLat(ac.geometry.coordinates)
-      .setHTML(`<div class="pop-title">${esc(p.type || 'Type inconnu')} ${p.prop ? '· hélice' : '· jet'}</div><div class="pop-sub" style="margin:0">${esc(p.alt)} m · ${esc(p.hex)}</div>`).addTo(map);
+      .setHTML(`<div class="pop-title">${esc(p.type || 'Type inconnu')} ${p.prop ? '· hélice' : '· jet'}</div><div class="pop-sub" style="margin:0">${esc(p.alt)} m · ${esc(p.hex)}${extra ? ' · ' + extra : ''}</div>`).addTo(map);
     return;
   }
   const ll = e.lngLat;
@@ -895,6 +907,34 @@ map.on('click', e => {
     updateLiveZoneUI(); renderZone(); hideHint();
   }
 });
+/* live radar: what is flying in view now, refreshed every 5 s while the page is visible */
+const RADAR_MIN_ZOOM = 6;
+let radarTimer = null, radarBusy = false;
+function radarWanted() {
+  // a recording shows its own aircraft (with distances); the radar would only duplicate them
+  return mapReady && !document.hidden && map.getZoom() >= RADAR_MIN_ZOOM && !(mode === 'live' && live.sid);
+}
+async function refreshRadar() {
+  clearTimeout(radarTimer);
+  radarTimer = setTimeout(refreshRadar, 5000);
+  if (!radarWanted()) { if (mapReady) map.getSource('radar').setData(EMPTY); return; }
+  if (radarBusy) return;
+  radarBusy = true;
+  try {
+    const c = map.getCenter(), b = map.getBounds();
+    const km = Math.min(250, map.getCenter().distanceTo(b.getNorthEast()) / 1000);
+    const d = await api(`aircraft?lat=${c.lat.toFixed(4)}&lon=${c.lng.toFixed(4)}&radius_km=${km.toFixed(0)}`);
+    if (!radarWanted()) return;
+    map.getSource('radar').setData({ type: 'FeatureCollection', features: d.aircraft.map(a => ({
+      type: 'Feature', geometry: { type: 'Point', coordinates: [a.lon, a.lat] },
+      properties: { hex: a.hex, prop: !!a.prop, type: a.type || '', alt: a.alt_m, brg: a.track || 0, flight: a.flight || '',
+        speed: a.speed_ms || 0, low: a.alt_m < 3000, label: `${a.type || '?'} · ${a.alt_m} m` } })) });
+  } catch (e) { /* keep the last picture; next try in 5 s */ }
+  finally { radarBusy = false; }
+}
+map.on('moveend', () => { if (mapReady) { clearTimeout(radarTimer); radarTimer = setTimeout(refreshRadar, 300); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshRadar(); });
+
 let hintTimer;
 function showHint(text, ms = 4000) {
   $('mapHint').textContent = text; $('mapHint').classList.add('show');
