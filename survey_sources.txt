@@ -1,0 +1,26 @@
+# One URL or "search: query" per line (searches = most viewed this week, see --sort)
+search: podcast
+search: full episode podcast interview
+search: vlog
+search: walking tour
+search: street interview
+search: camping
+search: fishing
+search: farm life
+search: hunting
+search: road trip
+search: drone footage
+search: car review
+search: news
+search: documentary
+search: gaming
+search: football highlights
+search: golf
+search: cooking outdoor
+search: live stream replay
+search: reaction
+search: challenge
+search: construction
+search: airshow
+search: beach day
+search: music video

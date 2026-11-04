@@ -148,16 +148,39 @@ class LiveSession:
                 self.log("ERROR: " + str(e))
             time.sleep(2)
 
+    def _closest_pass(self, a, prev, now):
+        """Distance from the zone centre (where the phone is) now, and the closest pass ahead
+        if the aircraft flies on straight: an aircraft already moving away will not be heard."""
+        kx, ky = m_per_deg_lon(self.lat), M_PER_DEG_LAT
+        x, y = (a["lon"] - self.lon) * kx, (a["lat"] - self.lat) * ky
+        out = {"dist_m": round(float(np.sqrt(x * x + y * y + a["alt_m"] ** 2)))}
+        if prev is None:
+            return out
+        dt = a["t"] - prev["t"]
+        vx, vy = (a["lon"] - prev["lon"]) * kx / dt, (a["lat"] - prev["lat"]) * ky / dt
+        v2 = vx * vx + vy * vy
+        if v2 < 1:
+            return out
+        tc = max(0.0, -(x * vx + y * vy) / v2) - (now - a["t"])  # seconds from now, <0 once past
+        cx, cy = x + vx * (tc + now - a["t"]), y + vy * (tc + now - a["t"])
+        out.update(cpa_m=round(float(np.sqrt(cx * cx + cy * cy + a["alt_m"] ** 2))), cpa_in_s=round(float(tc)))
+        return out
+
     def status(self):
         with self.lock:
             log = list(self.log_lines)
         props = {r[0] for r in self.adsb_rows if r[5] and is_propeller(r[5])}
-        latest = {}
+        latest, prev = {}, {}
         now = time.time()
         for hexid, t, la, lo, alt, typ in self.adsb_rows[-3000:]:
             if now - t < 30:
+                if hexid in latest and t - latest[hexid]["t"] >= 3:
+                    prev[hexid] = latest[hexid]
                 latest[hexid] = {"hex": hexid, "lat": la, "lon": lo, "alt_m": round(alt), "type": typ,
-                                 "prop": bool(typ) and is_propeller(typ)}
+                                 "prop": bool(typ) and is_propeller(typ), "t": t}
+        for hexid, a in latest.items():
+            a.update(self._closest_pass(a, prev.get(hexid), now))
+            del a["t"]
         return {
             "aircraft": list(latest.values()),
             "state": self.state, "duration": round(self.duration, 1), "t0": self.t0,

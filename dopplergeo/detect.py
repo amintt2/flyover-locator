@@ -70,11 +70,30 @@ def _scan(spec, c, ca, cb, clip, fmin, fmax, win_s, step_s, min_drop, max_rms, m
     for fa, fb in _bands(fmin, fmax):
         ridges = _ridges(spec, windows, fa, fb, min_z=1.0)
         for t0, t1 in windows:
-            fit = _fit_window(spec, c, t0, t1, ridges[float(t0)], ca, cb, min_drop, max_rms, min_strength)
+            ridge = ridges[float(t0)]
+            fit = _fit_window(spec, c, t0, t1, ridge, ca, cb, min_drop, max_rms, min_strength)
+            # the tracker may run along a steady engine line before or after the pass:
+            # fit each continuous stretch of the ridge on its own
+            for piece in ([] if fit else _pieces(ridge, 0.35 * (t1 - t0))):
+                fit = _fit_window(spec, c, t0, t1, piece, ca, cb, min_drop, max_rms, min_strength)
+                if fit:
+                    break
             if fit:
                 fit["clip"] = clip
                 found.append(fit)
     return found
+
+
+def _pieces(ridge, min_s, max_gap_s=2.0, max_jump_hz=3.0):
+    """Stretches of a ridge with no time gap or frequency jump, longest first."""
+    t, f, w = ridge
+    if len(t) < 2:
+        return []
+    cut = np.where((np.diff(t) > max_gap_s) | (np.abs(np.diff(f)) > max_jump_hz))[0] + 1
+    out = [(t[a:b], f[a:b], w[a:b]) for a, b in zip(np.r_[0, cut], np.r_[cut, len(t)])]
+    if len(out) == 1:
+        return []  # one stretch: the whole ridge, already tried
+    return sorted((p for p in out if p[0][-1] - p[0][0] >= min_s), key=lambda p: p[0][0] - p[0][-1])
 
 
 def _dedupe(found, gap):
