@@ -2,11 +2,25 @@ services:
   flyover:
     build: .
     environment:
-      - SERVICE_FQDN_FLYOVER_8000=https://flyover.mciut.fr
       - DATA_DIR=/data
     volumes:
       # live sessions, uploads, ADS-B cache: kept across redeploys
       - flyover-data:/data
+    labels:
+      # route the real domain here (Coolify would otherwise give the service a generated one)
+      - traefik.enable=true
+      - traefik.http.routers.flyover-https.rule=Host(`flyover.mciut.fr`)
+      - traefik.http.routers.flyover-https.entrypoints=https
+      - traefik.http.routers.flyover-https.tls=true
+      - traefik.http.routers.flyover-https.tls.certresolver=letsencrypt
+      - traefik.http.routers.flyover-https.priority=1000
+      - traefik.http.routers.flyover-https.service=flyover
+      - traefik.http.routers.flyover-http.rule=Host(`flyover.mciut.fr`)
+      - traefik.http.routers.flyover-http.entrypoints=http
+      - traefik.http.routers.flyover-http.priority=1000
+      - traefik.http.routers.flyover-http.middlewares=flyover-https-redirect
+      - traefik.http.middlewares.flyover-https-redirect.redirectscheme.scheme=https
+      - traefik.http.services.flyover.loadbalancer.server.port=8000
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://localhost:8000/api/config"]
       interval: 30s
