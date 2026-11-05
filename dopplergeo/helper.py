@@ -2,6 +2,7 @@
 PC fetches the audio (light) and the server does the analysis (heavy).
 
     python -m dopplergeo.helper            # listens on 127.0.0.1:8765
+    python -m dopplergeo.helper --cookies-from-browser chrome   # when YouTube asks to sign in
 
 POST /probe {"url"}  short excerpts spread over the video -> server score
 POST /send  {"url"}  whole soundtrack (audio only) -> server scan; progress in GET /jobs
@@ -163,7 +164,11 @@ class Handler(BaseHTTPRequestHandler):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--cookies-from-browser", metavar="BROWSER",
+                    help="use this browser's YouTube session when YouTube blocks anonymous downloads")
     a = ap.parse_args(argv)
+    if a.cookies_from_browser:
+        YTDLP.extend(["--cookies-from-browser", a.cookies_from_browser])
     print(f"Flyover helper on http://127.0.0.1:{a.port} -> {SERVER}", flush=True)
     ThreadingHTTPServer(("127.0.0.1", a.port), Handler).serve_forever()
 

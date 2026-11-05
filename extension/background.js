@@ -11,6 +11,15 @@ async function call(base, path, body) {
   return d;
 }
 
+function explain(m, type) {
+  if (m === 'Failed to fetch' && type !== 'results')
+    return "Assistant local injoignable : lance « python -m dopplergeo.helper » sur ton PC.";
+  if (/not a bot|Sign in to confirm/i.test(m))
+    return "YouTube bloque les téléchargements anonymes depuis ton adresse. Relance l'assistant avec " +
+      "« --cookies-from-browser chrome » (il utilise ta session YouTube), ou réessaie plus tard.";
+  return m;
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   const run = {
     health: () => call(HELPER, '/health'),
@@ -20,11 +29,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     results: () => call(SERVER, '/api/survey'),
   }[msg.type];
   if (!run) return false;
-  run().then(data => reply({ ok: true, data }), e => reply({
-    ok: false,
-    error: e.message === 'Failed to fetch' && msg.type !== 'results'
-      ? "Assistant local injoignable : lance « python -m dopplergeo.helper » sur ton PC." : e.message,
-  }));
+  run().then(data => reply({ ok: true, data }), e => reply({ ok: false, error: explain(e.message, msg.type) }));
   return true; // async reply
 });
 
