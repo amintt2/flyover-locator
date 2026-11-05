@@ -4,6 +4,8 @@
 // Capture runs at 4x speed without pitch correction: the samples are then exactly the
 // original sound, slowed back down by declaring a sample rate 4 times lower.
 (() => {
+  if (window.__flyover) return;  // injected again by the popup into an older tab
+  window.__flyover = true;
   const SERVER = 'https://flyover.mciut.fr';
   const RATE = 4, OUT_SR = 8000;  // effective sample rate sent to the server
   const EXCERPTS = 4, EXCERPT_S = 30;
@@ -26,6 +28,12 @@
   window.addEventListener('yt-navigate-finish', () => { syncFab(); if (panel && !busy) panel.remove(), panel = null; });
   syncFab();
 
+  // the toolbar popup starts things from here
+  globalThis.chrome?.runtime?.onMessage?.addListener((msg, _sender, reply) => {
+    if (msg.type === 'open' || msg.type === 'full') open(msg.type);
+    reply(true);
+  });
+
   // ---------------------------------------------------------------- capture
 
   let graph;  // one MediaElementSource per <video>, for the element's whole life
@@ -45,6 +53,8 @@
     if (!v) throw new Error('lecteur introuvable');
     const g = tap(v);
     await g.ctx.resume();
+    const blocked = new Error('Chrome bloque le son tant que tu n\'as pas touché la page : clique une fois sur la vidéo, puis relance.');
+    if (g.ctx.state !== 'running') throw blocked;
     const keep = { t: v.currentTime, paused: v.paused, rate: v.playbackRate, pitch: v.preservesPitch };
     const need = Math.round((t1 - t0) * OUT_SR);
     const out = new Int16Array(need);
@@ -70,7 +80,7 @@
       await new Promise(r => v.addEventListener('seeked', r, { once: true }));
       v.preservesPitch = false;
       v.playbackRate = RATE;
-      await v.play();
+      await v.play().catch(e => { throw e.name === 'NotAllowedError' ? blocked : e; });
       while (n < need && !cancel) {
         await sleep(250);
         if (v.ended) break;
@@ -122,7 +132,7 @@
 
   // ---------------------------------------------------------------- panel
 
-  function open() {
+  function open(mode = 'open') {
     if (!videoId()) return;
     if (!panel) {
       panel = document.createElement('div');
@@ -132,7 +142,12 @@
     if (busy) return;
     panel.innerHTML = `<div class="fo-head"><b>Flyover</b><button class="fo-x" title="Fermer">×</button></div><div class="fo-body"></div>`;
     panel.querySelector('.fo-x').onclick = () => { cancel = busy; panel.remove(); panel = null; };
-    probe();
+    if (mode !== 'full') return probe();
+    const info = pageInfo();
+    if (!info.duration) { body().innerHTML = '<div class="fo-err">Live en cours : l\'analyse complète marche sur une vidéo terminée.</div>'; return; }
+    body().innerHTML = `<div class="fo-title">${esc(info.title)}</div><div class="fo-sub">${fmt(info.duration)}, écoute en ×${RATE} : environ ${fmt(info.duration / RATE)}</div>
+      <button class="fo-send" disabled>Analyse complète en cours</button><div class="fo-status"></div>`;
+    full(info);
   }
 
   const body = () => panel?.querySelector('.fo-body');

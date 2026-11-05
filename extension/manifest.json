@@ -1,8 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Flyover pour YouTube",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Est-ce que cette vidéo peut contenir un passage d'avion ? Score rapide, puis analyse complète sur le serveur Flyover.",
+  "permissions": ["activeTab", "scripting"],
+  "action": { "default_popup": "popup.html", "default_title": "Flyover" },
   "content_scripts": [{
     "matches": ["https://www.youtube.com/*"],
     "js": ["content.js"],
