@@ -1349,6 +1349,9 @@ async function submitJob(kind) {
   if (!file.file) return;
   await cfgReady;
   if (cfg.password && !pw) { badPassword(); return; }
+  if (cfg.max_upload_mb && file.file.size > cfg.max_upload_mb * 1048576) {
+    toast(`Fichier trop gros : ${Math.round(file.file.size / 1e6)} Mo, maximum ${cfg.max_upload_mb} Mo`, 'err'); return;
+  }
   const d = $('date').value, t = $('time').value;
   if (t && !d) { $('date').classList.add('bad'); toast('Indique aussi la date', 'err'); return; }
   const fd = new FormData();
@@ -1379,7 +1382,7 @@ async function submitJob(kind) {
     let body = {}; try { body = JSON.parse(xhr.responseText || '{}'); } catch {}
     if (xhr.status !== 200) {
       if (xhr.status === 401) badPassword();
-      const msg = xhr.status === 401 ? 'Mot de passe incorrect.' : xhr.status === 413 ? 'Fichier trop gros.' : (typeof body.detail === 'string' ? body.detail : Array.isArray(body.detail) ? 'Requête refusée : ' + body.detail.map(e => (e.loc || []).slice(1).join('.')).join(', ') : `Erreur serveur (${xhr.status}).`);
+      const msg = xhr.status === 401 ? 'Mot de passe incorrect.' : xhr.status === 413 ? (typeof body.detail === 'string' ? body.detail : 'Fichier trop gros.') : (typeof body.detail === 'string' ? body.detail : Array.isArray(body.detail) ? 'Requête refusée : ' + body.detail.map(e => (e.loc || []).slice(1).join('.')).join(', ') : `Erreur serveur (${xhr.status}).`);
       return fileFail(msg, 'upload');
     }
     file.job = body.job;

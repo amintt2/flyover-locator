@@ -2,17 +2,19 @@
 
 Run: uvicorn dopplergeo.web:app --host 0.0.0.0 --port 8000
 Env: DATA_DIR (default ./data), APP_PASSWORD (optional shared password),
-     MAX_UPLOAD_MB (default 500), MAX_RADIUS_KM (default 100),
+     MAX_UPLOAD_MB (default 4000), MAX_RADIUS_KM (default 100),
      MAX_DAYS (default 31, find-the-day range), DAY_WORKERS (days searched at once),
      ADSB_FILE / DEM_NPZ (offline testing).
 """
 
+import asyncio
 import datetime as dt
 import json
 import math
 import os
 import secrets
 import shutil
+import tempfile
 import threading
 import time
 import traceback
@@ -35,14 +37,14 @@ from .pipeline import analyze_audio, locate
 from .radar import Radar
 from .search import SearchParams
 from .session import LiveSession
-from . import survey
+from . import probe, survey
 
 DATA = Path(os.environ.get("DATA_DIR", "data")).resolve()
 JOBS = DATA / "jobs"
 LIVE = DATA / "live"
 INDEX = DATA / "adsb_index"
 PASSWORD = os.environ.get("APP_PASSWORD", "")
-MAX_UPLOAD = int(os.environ.get("MAX_UPLOAD_MB", "500")) * 1024 * 1024
+MAX_UPLOAD = int(os.environ.get("MAX_UPLOAD_MB", "4000")) * 1024 * 1024
 MAX_RADIUS_KM = float(os.environ.get("MAX_RADIUS_KM", "100"))
 MAX_DAYS = int(os.environ.get("MAX_DAYS", "31"))
 MAX_LIVE_RADIUS_KM = 450.0  # adsb.lol live point queries go up to 250 nm
@@ -262,6 +264,7 @@ def index():
 @app.get("/api/config")
 def config():
     return {"password": bool(PASSWORD), "max_radius_km": MAX_RADIUS_KM, "max_days": MAX_DAYS, "max_live_radius_km": MAX_LIVE_RADIUS_KM,
+            "max_upload_mb": MAX_UPLOAD // (1024 * 1024),
             "regions": {k: v["name"] for k, v in {"europe": DEFAULT_AREAS[50], "usa": DEFAULT_AREAS[60]}.items()}}
 
 
@@ -316,7 +319,7 @@ async def create_job(file: UploadFile | None = File(None), lat: str = Form(""), 
             if size > MAX_UPLOAD:
                 fh.close()
                 shutil.rmtree(d, ignore_errors=True)
-                raise HTTPException(413, "file too large")
+                raise HTTPException(413, f"Fichier trop gros (max {MAX_UPLOAD // (1024 * 1024)} Mo).")
             fh.write(chunk)
     start_unix = None
     if start:
@@ -357,6 +360,7 @@ def job_image(job: str, name: str, pw: str = ""):
 
 SURVEY = DATA / "survey"
 _survey_lock = threading.Lock()
+_survey_queue = set()  # uploads waiting for the scan in progress
 
 
 @app.post("/api/survey")
@@ -389,8 +393,6 @@ async def survey_file(file: UploadFile = File(...), info: str = Form("{}"), x_pa
     vid = str(meta.get("id") or uuid.uuid4().hex[:11])
     if not vid.replace("-", "").replace("_", "").isalnum():
         raise HTTPException(400, "id")
-    if not _survey_lock.acquire(blocking=False):
-        raise HTTPException(409, "survey already running")
     d = SURVEY / "uploads" / vid
     d.mkdir(parents=True, exist_ok=True)
     src = d / ("a" + Path(file.filename or "a.webm").suffix)
@@ -399,6 +401,8 @@ async def survey_file(file: UploadFile = File(...), info: str = Form("{}"), x_pa
             fh.write(chunk)
 
     def run():
+        _survey_lock.acquire()
+        _survey_queue.discard(vid)
         row = {"url": meta.get("webpage_url"), "query": "upload", "ts": int(time.time())}
         try:
             row |= survey.analyse(str(src), meta | {"id": vid}, SURVEY / "review" / vid)
@@ -411,8 +415,39 @@ async def survey_file(file: UploadFile = File(...), info: str = Form("{}"), x_pa
                 fh.write(json.dumps(row, ensure_ascii=False) + "\n")
             _survey_lock.release()
 
+    # one scan at a time: later uploads wait their turn instead of being refused
+    _survey_queue.add(vid)
     threading.Thread(target=run, daemon=True).start()
-    return {"id": vid}
+    return {"id": vid, "waiting": len(_survey_queue) - 1}
+
+
+@app.post("/api/probe")
+async def probe_video(files: list[UploadFile] | None = File(None), info: str = Form("{}"), x_password: str | None = Header(None)):
+    """Score a video from a few short excerpts before it is downloaded in full."""
+    _check(x_password)
+    meta = json.loads(info)
+    d = Path(tempfile.mkdtemp(dir=DATA))
+    try:
+        paths = []
+        for i, f in enumerate((files or [])[:8]):
+            p = d / f"{i}{Path(f.filename or 'a.webm').suffix[:8]}"
+            p.write_bytes(await f.read(20 << 20))
+            paths.append(p)
+
+        def run():
+            ex = []
+            for p in paths:
+                try:
+                    ex.append(probe.excerpt_stats(p))
+                except Exception:  # noqa: BLE001 - a bad excerpt should not sink the others
+                    traceback.print_exc()
+            return ex
+
+        ex = await asyncio.to_thread(run)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+    s, why = probe.score(ex, meta)
+    return {"score": s, "reasons": why, "excerpts": ex}
 
 
 @app.get("/api/survey")
@@ -420,7 +455,7 @@ def survey_results(x_password: str | None = Header(None)):
     _check(x_password)
     path = SURVEY / "results.jsonl"
     rows = [json.loads(l) for l in path.read_text().splitlines()] if path.exists() else []
-    return {"running": _survey_lock.locked(), "results": rows}
+    return {"running": _survey_lock.locked() or bool(_survey_queue), "waiting": sorted(_survey_queue), "results": rows}
 
 
 @app.get("/api/survey/img/{vid}/{name}")
