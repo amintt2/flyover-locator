@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl nod
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY dopplergeo ./dopplergeo
+COPY extension ./extension
 RUN pip install --no-cache-dir ".[web]" "yt-dlp[default]"
 
 ENV DATA_DIR=/data \

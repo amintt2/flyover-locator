@@ -1,11 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Flyover pour YouTube",
-  "version": "0.1.0",
-  "description": "Est-ce que cette vidéo peut contenir un passage d'avion ? Score rapide, puis envoi au serveur Flyover.",
-  "permissions": ["contextMenus", "storage"],
-  "host_permissions": ["http://127.0.0.1:8765/*", "https://flyover.mciut.fr/*"],
-  "background": { "service_worker": "background.js" },
+  "version": "0.2.0",
+  "description": "Est-ce que cette vidéo peut contenir un passage d'avion ? Score rapide, puis analyse complète sur le serveur Flyover.",
   "content_scripts": [{
     "matches": ["https://www.youtube.com/*"],
     "js": ["content.js"],

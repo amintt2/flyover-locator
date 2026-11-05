@@ -24,7 +24,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from .audio import detect_cuts, media_start_time
 from .dem import load_dem
@@ -52,6 +53,10 @@ JOBS.mkdir(parents=True, exist_ok=True)
 LIVE.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Flyover Locator")
+# the YouTube extension sends excerpts and soundtracks straight from the video page
+app.add_middleware(CORSMiddleware, allow_origins=["https://www.youtube.com"], allow_methods=["GET", "POST"],
+                   allow_headers=["*"])
+EXTENSION = Path(os.environ.get("EXTENSION_DIR", Path(__file__).resolve().parent.parent / "extension"))
 
 
 @app.exception_handler(RequestValidationError)
@@ -259,6 +264,23 @@ def _work(job, media, zone, start_unix, start_tol_s, use_meta, region, mode="loc
 @app.get("/", response_class=HTMLResponse)
 def index():
     return (Path(__file__).parent / "static" / "index.html").read_text()
+
+
+@app.get("/flyover-extension.zip")
+def extension_zip():
+    """The Chrome extension, to unzip and load in chrome://extensions (developer mode)."""
+    import io
+    import zipfile
+
+    if not EXTENSION.is_dir():
+        raise HTTPException(404)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in sorted(EXTENSION.iterdir()):
+            if f.is_file():
+                z.write(f, f"flyover-extension/{f.name}")
+    return Response(buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": 'attachment; filename="flyover-extension.zip"'})
 
 
 @app.get("/api/config")
