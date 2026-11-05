@@ -156,6 +156,20 @@ def spectrogram(x, sr, fmin, fmax, win_s=1.0, hop_s=0.1, pad=4, smooth_hz=0.5, s
     return Spectrogram(times, freqs, db, z)
 
 
+def harmonic_spectrogram(spec, gmin=40.0, gmax=200.0, kmax=6):
+    """Sum of z at every harmonic k*g of each candidate fundamental g (over sqrt of the
+    count, so noise keeps unit scale). A propeller's lines all share the same Doppler
+    factor, so a distant pass whose single lines are too faint to follow adds up here."""
+    g = spec.freqs[(spec.freqs >= gmin) & (spec.freqs <= gmax)]
+    z = np.zeros((len(g), spec.z.shape[1]), np.float32)
+    n = np.zeros(len(g))
+    for k in range(1, kmax + 1):
+        ok = k * g <= spec.freqs[-1]
+        z[ok] += spec.z[np.rint((k * g[ok] - spec.freqs[0]) / spec.df).astype(np.int64)]
+        n[ok] += 1
+    return Spectrogram(spec.times, g, None, z / np.sqrt(n)[:, None])
+
+
 def track_ridge(spec, t0, t1, fmin, fmax, max_jump_hz=1.5, jump_cost=0.5, min_z=0.5):
     """Follow the brightest continuous line in a time/frequency box (Viterbi).
 

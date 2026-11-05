@@ -2,7 +2,8 @@
 
 import numpy as np
 
-from .audio import event_from_fit, fit_flyover, track_ridge, track_ridges
+from .audio import event_from_fit, fit_flyover, harmonic_spectrogram, track_ridge, track_ridges
+from .physics import straight_flyover
 
 
 GROUND = {"car": "voiture / moto", "truck": "camion / bus", "boat": "bateau", "train": "train ?"}
@@ -23,8 +24,14 @@ def detect_flyovers(spec, c=343.0, fmin=50.0, fmax=300.0, win_s=110.0, step_s=20
     de-duplicated so each flyover appears once.
     """
     found = []
+    harm = harmonic_spectrogram(spec, fmin * 0.8, fmax * 2 / 3)
     for ci, (ca, cb) in enumerate(clips or [(0.0, spec.duration)]):
         found += _scan(spec, c, ca, cb, ci, fmin, fmax, win_s, step_s, min_drop, max_rms, min_strength)
+        # distant passes: each harmonic alone is too faint, all of them together are not
+        for fit in _scan(harm, c, ca, cb, ci, harm.freqs[0], harm.freqs[-1], win_s, step_s, min_drop, max_rms,
+                         min_strength):
+            if fit["kind"] == "aircraft":
+                found.append(_loudest_harmonic(spec, fit, c))
     events = _dedupe([f for f in found if f["kind"] == "aircraft"], 40)
     if others is not None:
         ground = [f for f in found if f["kind"] != "aircraft"
@@ -82,6 +89,17 @@ def _scan(spec, c, ca, cb, clip, fmin, fmax, win_s, step_s, min_drop, max_rms, m
                 fit["clip"] = clip
                 found.append(fit)
     return found
+
+
+def _loudest_harmonic(spec, fit, c, kmax=6):
+    """A fit on the harmonic sum is in terms of the fundamental, which may be silent:
+    move it onto the harmonic that is actually loudest (v, d and tc are unchanged)."""
+    t = np.arange(*fit["window"], spec.hop)
+    curve = straight_flyover(t, fit["f0"], fit["v"], fit["d"], fit["tc"], c)
+    ks = [k for k in range(1, kmax + 1) if k * curve.max() <= spec.freqs[-1]] or [1]
+    k = max(ks, key=lambda k: float(np.median(spec.lookup(t, k * curve))))
+    fit.update(f0=fit["f0"] * k, rms_hz=fit["rms_hz"] * k, harmonic=k)
+    return fit
 
 
 def _pieces(ridge, min_s, max_gap_s=2.0, max_jump_hz=3.0):
